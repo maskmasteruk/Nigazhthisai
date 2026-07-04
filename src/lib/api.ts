@@ -87,11 +87,7 @@ export const adminApi = {
       if (authError) throw authError;
       if (!authData.user) throw new Error('Authentication failed');
 
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single();
+      const { data: profile, error: profileError } = await supabase.rpc('rpc_get_profile_by_id', { user_uuid: authData.user.id });
       if (profileError) throw profileError;
 
       return { 
@@ -101,6 +97,51 @@ export const adminApi = {
     } catch (err) {
       console.warn('Supabase login failed, falling back to mock login:', err);
       return localLogin(credentials);
+    }
+  },
+
+  registerPassenger: async (userData: any) => {
+    if (isPlaceholder) {
+      const newProfile = {
+        id: `user-${Math.floor(1000 + Math.random() * 9000)}`,
+        name: userData.name,
+        role: 'PASSENGER',
+        email: userData.email.toLowerCase(),
+        phone: userData.phone,
+        created_at: new Date().toISOString()
+      };
+      mockProfiles.push(newProfile);
+      return { success: true, message: 'Registration successful! Please check your email to verify.' };
+    }
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            name: userData.name,
+            phone: userData.phone,
+            role: 'PASSENGER'
+          }
+        }
+      });
+      if (error) throw error;
+      return { 
+        success: true, 
+        message: 'Registration successful! Please check your email to verify your account.' 
+      };
+    } catch (err: any) {
+      console.warn('Supabase signUp failed, using mock registration fallback:', err);
+      const newProfile = {
+        id: `user-${Math.floor(1000 + Math.random() * 9000)}`,
+        name: userData.name,
+        role: 'PASSENGER',
+        email: userData.email.toLowerCase(),
+        phone: userData.phone,
+        created_at: new Date().toISOString()
+      };
+      mockProfiles.push(newProfile);
+      return { success: true, message: 'Registration successful! Please check your email to verify.' };
     }
   },
 
@@ -137,22 +178,10 @@ export const adminApi = {
     }
 
     try {
-      let tripsQuery = supabase.from('trips').select('*');
-      let ticketsQuery = supabase.from('tickets').select('*');
-      let alertsQuery = supabase.from('alerts').select('*').eq('status', 'PENDING');
-
-      if (filters?.district && filters.district !== 'All') {
-        tripsQuery = tripsQuery.eq('district', filters.district);
-        ticketsQuery = ticketsQuery.eq('bus_name', filters.district);
-      }
-      if (filters?.zone && filters.zone !== 'All') {
-        tripsQuery = tripsQuery.eq('zone', filters.zone);
-      }
-
       const [tripsRes, ticketsRes, alertsRes] = await Promise.all([
-        tripsQuery,
-        ticketsQuery,
-        alertsQuery
+        supabase.rpc('rpc_get_all_trips', { district_filter: filters?.district || null, zone_filter: filters?.zone || null }),
+        supabase.rpc('rpc_get_all_tickets', { bus_name_filter: filters?.district || null }),
+        supabase.rpc('rpc_get_pending_alerts')
       ]);
 
       if (tripsRes.error) throw tripsRes.error;
@@ -204,7 +233,7 @@ export const adminApi = {
   getRoutes: async () => {
     if (isPlaceholder || (window as any).isPlaceholderOverride) return mockRoutes;
     try {
-      const { data, error } = await supabase.from('routes').select('*').order('id', { ascending: true });
+      const { data, error } = await supabase.rpc('rpc_get_routes');
       if (error) throw error;
       return data || [];
     } catch (err) {
@@ -216,7 +245,7 @@ export const adminApi = {
   getBuses: async () => {
     if (isPlaceholder || (window as any).isPlaceholderOverride) return mockBuses.map(mapBus);
     try {
-      const { data, error } = await supabase.from('buses').select('*').order('id', { ascending: true });
+      const { data, error } = await supabase.rpc('rpc_get_buses');
       if (error) throw error;
       return (data || []).map(mapBus);
     } catch (err) {
@@ -228,16 +257,9 @@ export const adminApi = {
   getTrips: async () => {
     if (isPlaceholder || (window as any).isPlaceholderOverride) return mockTrips;
     try {
-      const { data, error } = await supabase
-        .from('trips')
-        .select('*, routes(name), buses(registration_number)')
-        .order('created_at', { ascending: false });
+      const { data, error } = await supabase.rpc('rpc_get_trips_detailed');
       if (error) throw error;
-      return (data || []).map(t => ({
-        ...t,
-        route_name: (t.routes as any)?.name || 'Unknown Route',
-        bus_no: (t.buses as any)?.registration_number || 'Unknown Bus'
-      }));
+      return data || [];
     } catch (err) {
       console.warn('Supabase getTrips failed, falling back to mock trips:', err);
       return mockTrips;
@@ -266,22 +288,19 @@ export const adminApi = {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('trips')
-        .select('*, routes(name), buses(*)')
-        .eq('status', 'RUNNING');
+      const { data, error } = await supabase.rpc('rpc_get_live_trips_detailed');
       if (error) throw error;
       return (data || []).map(t => ({
         id: t.id,
-        bus_id: (t.buses as any)?.registration_number || t.bus_id,
-        route_name: (t.routes as any)?.name || 'Unknown Route',
-        current_lat: Number((t.buses as any)?.current_lat || 11.1085),
-        current_lng: Number((t.buses as any)?.current_lng || 77.3411),
-        speed: t.status === 'RUNNING' ? 40 : 0,
-        occupancy: t.occupancy_percent || 50,
-        status: t.delay_minutes > 10 ? 'DELAYED' : 'ON_TIME',
-        is_idle: false,
-        idle_minutes: 0,
+        bus_id: t.bus_no,
+        route_name: t.route_name,
+        current_lat: Number(t.current_lat),
+        current_lng: Number(t.current_lng),
+        speed: t.speed,
+        occupancy: t.occupancy,
+        status: t.status,
+        is_idle: t.is_idle,
+        idle_minutes: t.idle_minutes,
         district: t.district,
         zone: t.zone
       }));
@@ -316,7 +335,7 @@ export const adminApi = {
     }
 
     try {
-      const { data: tickets, error } = await supabase.from('tickets').select('*');
+      const { data: tickets, error } = await supabase.rpc('rpc_get_all_tickets');
       if (error) throw error;
 
       const totalRevenue = tickets?.reduce((sum, t) => sum + Number(t.fare), 0) || 0;
@@ -360,10 +379,7 @@ export const adminApi = {
       return { success: true };
     }
     try {
-      const { error } = await supabase
-        .from('alerts')
-        .update({ status: 'ACKNOWLEDGED' })
-        .eq('id', id);
+      const { error } = await supabase.rpc('rpc_acknowledge_alert', { alert_id: Number(id) });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -376,7 +392,7 @@ export const adminApi = {
   getUsers: async () => {
     if (isPlaceholder || (window as any).isPlaceholderOverride) return mockProfiles;
     try {
-      const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.rpc('rpc_get_users');
       if (error) throw error;
       return data || [];
     } catch (err) {
@@ -388,7 +404,7 @@ export const adminApi = {
   getStops: async () => {
     if (isPlaceholder || (window as any).isPlaceholderOverride) return mockStops;
     try {
-      const { data, error } = await supabase.from('stops').select('*').order('name', { ascending: true });
+      const { data, error } = await supabase.rpc('rpc_get_stops');
       if (error) throw error;
       return data || [];
     } catch (err) {
@@ -400,7 +416,7 @@ export const adminApi = {
   getShops: async () => {
     if (isPlaceholder || (window as any).isPlaceholderOverride) return mockShops;
     try {
-      const { data, error } = await supabase.from('shops').select('*').order('name', { ascending: true });
+      const { data, error } = await supabase.rpc('rpc_get_shops');
       if (error) throw error;
       return data || [];
     } catch (err) {
@@ -429,20 +445,16 @@ export const adminApi = {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('buses')
-        .insert([{
-          id: busData.id || `bus-${Math.floor(1000 + Math.random() * 9000)}`,
-          registration_number: busData.reg_no || busData.registration_number,
-          route_id: busData.route_id ? Number(busData.route_id) : null,
-          status: busData.status || 'STOPPED',
-          capacity: Number(busData.capacity || 50),
-          fare: Number(busData.fare || 15),
-          district: busData.district,
-          zone: busData.zone
-        }])
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('rpc_add_bus', {
+        bus_id: busData.id || `bus-${Math.floor(1000 + Math.random() * 9000)}`,
+        reg_no: busData.reg_no || busData.registration_number,
+        route_id: busData.route_id ? Number(busData.route_id) : null,
+        capacity: Number(busData.capacity || 50),
+        fare: Number(busData.fare || 15),
+        district: busData.district,
+        zone: busData.zone,
+        bus_status: busData.status || 'STOPPED'
+      });
       if (error) throw error;
       return mapBus(data);
     } catch (err) {
@@ -469,15 +481,11 @@ export const adminApi = {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('routes')
-        .insert([{
-          code: routeData.code,
-          name: routeData.name,
-          stops: Array.isArray(routeData.stops) ? routeData.stops : JSON.parse(routeData.stops)
-        }])
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('rpc_add_route', {
+        code: routeData.code,
+        name: routeData.name,
+        stops: Array.isArray(routeData.stops) ? routeData.stops : JSON.parse(routeData.stops)
+      });
       if (error) throw error;
       return data;
     } catch (err) {
@@ -509,21 +517,17 @@ export const adminApi = {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('trips')
-        .insert([{
-          id: tripData.id || `TRIP-${Math.floor(100000 + Math.random() * 900000)}`,
-          route_id: Number(tripData.route_id),
-          bus_id: tripData.bus_id,
-          driver_name: tripData.driver_name,
-          conductor_name: tripData.conductor_name,
-          status: tripData.status || 'SCHEDULED',
-          actual_start_time: tripData.actual_start_time,
-          district: tripData.district,
-          zone: tripData.zone
-        }])
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('rpc_add_trip', {
+        trip_id: tripData.id || `TRIP-${Math.floor(100000 + Math.random() * 900000)}`,
+        route_id: Number(tripData.route_id),
+        bus_id: tripData.bus_id,
+        driver_name: tripData.driver_name,
+        conductor_name: tripData.conductor_name,
+        status: tripData.status || 'SCHEDULED',
+        start_time: tripData.actual_start_time || null,
+        district: tripData.district,
+        zone: tripData.zone
+      });
       if (error) throw error;
       return data;
     } catch (err) {
@@ -550,17 +554,14 @@ export const adminApi = {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('shops')
-        .insert([{
-          name: shopData.name,
-          description: shopData.description,
-          lat: Number(shopData.lat),
-          lng: Number(shopData.lng),
-          status: shopData.status
-        }])
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('rpc_add_shop', {
+        shop_id: `shop-${Math.floor(1000 + Math.random() * 9000)}`,
+        shop_name: shopData.name,
+        shop_description: shopData.description,
+        shop_lat: Number(shopData.lat),
+        shop_lng: Number(shopData.lng),
+        shop_status: shopData.status || 'ACTIVE'
+      });
       if (error) throw error;
       return data;
     } catch (err) {
@@ -596,18 +597,16 @@ export const adminApi = {
     }
 
     try {
-      const { error } = await supabase
-        .from('buses')
-        .update({
-          registration_number: busData.reg_no || busData.registration_number,
-          route_id: busData.route_id ? Number(busData.route_id) : null,
-          status: busData.status,
-          capacity: Number(busData.capacity || 50),
-          fare: Number(busData.fare || 15),
-          district: busData.district,
-          zone: busData.zone
-        })
-        .eq('id', id);
+      const { error } = await supabase.rpc('rpc_update_bus', {
+        bus_id: id,
+        reg_no: busData.reg_no || busData.registration_number,
+        route_id: busData.route_id ? Number(busData.route_id) : null,
+        capacity: Number(busData.capacity || 50),
+        fare: Number(busData.fare || 15),
+        district: busData.district,
+        zone: busData.zone,
+        bus_status: busData.status
+      });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -638,14 +637,12 @@ export const adminApi = {
     }
 
     try {
-      const { error } = await supabase
-        .from('routes')
-        .update({
-          code: routeData.code,
-          name: routeData.name,
-          stops: Array.isArray(routeData.stops) ? routeData.stops : JSON.parse(routeData.stops)
-        })
-        .eq('id', id);
+      const { error } = await supabase.rpc('rpc_update_route', {
+        route_id: Number(id),
+        code: routeData.code,
+        name: routeData.name,
+        stops: Array.isArray(routeData.stops) ? routeData.stops : JSON.parse(routeData.stops)
+      });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -672,14 +669,12 @@ export const adminApi = {
     }
 
     try {
-      const { error } = await supabase
-        .from('trips')
-        .update({
-          driver_name: tripData.driver_name,
-          conductor_name: tripData.conductor_name,
-          status: tripData.status
-        })
-        .eq('id', id);
+      const { error } = await supabase.rpc('rpc_update_trip', {
+        trip_id: id,
+        driver_name: tripData.driver_name,
+        conductor_name: tripData.conductor_name,
+        trip_status: tripData.status
+      });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -708,16 +703,14 @@ export const adminApi = {
     }
 
     try {
-      const { error } = await supabase
-        .from('shops')
-        .update({
-          name: shopData.name,
-          description: shopData.description,
-          lat: shopData.lat ? Number(shopData.lat) : undefined,
-          lng: shopData.lng ? Number(shopData.lng) : undefined,
-          status: shopData.status
-        })
-        .eq('id', id);
+      const { error } = await supabase.rpc('rpc_update_shop', {
+        shop_id: id,
+        name: shopData.name,
+        description: shopData.description,
+        lat: Number(shopData.lat),
+        lng: Number(shopData.lng),
+        status: shopData.status
+      });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -740,7 +733,7 @@ export const adminApi = {
       return { success: true };
     }
     try {
-      const { error } = await supabase.from('buses').delete().eq('id', id);
+      const { error } = await supabase.rpc('rpc_delete_bus', { bus_id: id });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -756,7 +749,7 @@ export const adminApi = {
       return { success: true };
     }
     try {
-      const { error } = await supabase.from('routes').delete().eq('id', id);
+      const { error } = await supabase.rpc('rpc_delete_route', { route_id: Number(id) });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -772,7 +765,7 @@ export const adminApi = {
       return { success: true };
     }
     try {
-      const { error } = await supabase.from('trips').delete().eq('id', id);
+      const { error } = await supabase.rpc('rpc_delete_trip', { trip_id: id });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -788,7 +781,7 @@ export const adminApi = {
       return { success: true };
     }
     try {
-      const { error } = await supabase.from('shops').delete().eq('id', id);
+      const { error } = await supabase.rpc('rpc_delete_shop', { shop_id: id });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -833,11 +826,7 @@ export const conductorApi = {
         });
         if (loginError) throw loginError;
 
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', loginData.user?.id)
-          .single();
+        const { data: profile } = await supabase.rpc('rpc_get_profile_by_id', { user_uuid: loginData.user?.id });
 
         return {
           token: loginData.session?.access_token,
@@ -853,11 +842,7 @@ export const conductorApi = {
       if (error) throw error;
       if (!data.user) throw new Error('OTP verification returned no user session.');
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', data.user.id)
-        .single();
+      const { data: profile } = await supabase.rpc('rpc_get_profile_by_id', { user_uuid: data.user.id });
 
       return {
         token: data.session?.access_token,
@@ -875,16 +860,13 @@ export const conductorApi = {
   getTodayTrips: async () => {
     if (isPlaceholder || (window as any).isPlaceholderOverride) return mockTrips;
     try {
-      const { data, error } = await supabase
-        .from('trips')
-        .select('*, routes(name, stops), buses(registration_number)')
-        .order('created_at', { ascending: false });
+      const { data, error } = await supabase.rpc('rpc_get_trips_detailed');
       if (error) throw error;
       return (data || []).map(trip => ({
         ...trip,
-        route_name: (trip.routes as any)?.name || 'Unknown Route',
-        bus_no: (trip.buses as any)?.registration_number || 'Unknown Bus',
-        stops: (trip.routes as any)?.stops || []
+        route_name: trip.route_name || 'Unknown Route',
+        bus_no: trip.bus_no || 'Unknown Bus',
+        stops: trip.stops || []
       }));
     } catch (err) {
       console.warn('Supabase getTodayTrips failed, returning mock trips:', err);
@@ -898,10 +880,7 @@ export const conductorApi = {
       return { success: true };
     }
     try {
-      const { error } = await supabase
-        .from('trips')
-        .update({ status: 'RUNNING', actual_start_time: new Date().toLocaleTimeString() })
-        .eq('id', tripId);
+      const { error } = await supabase.rpc('rpc_start_trip', { trip_id: tripId, start_time: new Date().toLocaleTimeString() });
       if (error) throw error;
       return { success: true };
     } catch (err) {
@@ -942,36 +921,32 @@ export const conductorApi = {
     }
 
     try {
-      const { data: trip } = await supabase
-        .from('trips')
-        .select('*, routes(name, stops), buses(*)')
-        .eq('id', tripId)
-        .single();
+      const { data } = await supabase.rpc('rpc_get_trip_detailed_by_id', { trip_id: tripId });
+      const trip = data && data.length > 0 ? data[0] : null;
 
-      const stops = (trip?.routes as any)?.stops || [];
+      const stops = (trip as any)?.stops || [];
       const fromIndex = stops.indexOf(fromStop);
       const toIndex = stops.indexOf(toStop);
       const distance = fromIndex !== -1 && toIndex !== -1 ? Math.abs(fromIndex - toIndex) : 1;
-      const baseFare = Number((trip?.buses as any)?.fare || 15);
+      const baseFare = Number((trip as any)?.bus_fare || 15);
       const fare = distance * baseFare * passengers;
       const ticketId = `NIG-${Math.floor(100000 + Math.random() * 900000)}`;
 
-      const { error } = await supabase
-        .from('tickets')
-        .insert([{
-          id: ticketId,
-          trip_id: tripId,
-          bus_id: trip?.bus_id,
-          bus_name: (trip?.routes as any)?.name,
-          from_stop: fromStop,
-          to_stop: toStop,
-          seats: passengers,
-          fare,
-          channel: 'ETM',
-          status: 'BOARDED',
-          qr_payload: `VALID:${ticketId}`,
-          date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        }]);
+      const { error } = await supabase.rpc('rpc_insert_ticket', {
+        ticket_id: ticketId,
+        user_id: null,
+        trip_id: tripId,
+        bus_id: (trip as any)?.bus_id,
+        bus_name: (trip as any)?.route_name,
+        from_stop: fromStop,
+        to_stop: toStop,
+        seats: passengers,
+        fare,
+        channel: 'ETM',
+        status: 'BOARDED',
+        qr_payload: `VALID:${ticketId}`,
+        ticket_date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      });
 
       if (error) throw error;
       return { ticketId, fare, fromStop, toStop, passengers };
@@ -994,27 +969,21 @@ export const conductorApi = {
 
     try {
       const cleanTicketId = qrData.includes(':') ? qrData.split(':').slice(1).join(':') : qrData;
-      const { data: ticket, error } = await supabase
-        .from('tickets')
-        .select('*, profiles(name)')
-        .eq('id', cleanTicketId)
-        .single();
+      const { data, error } = await supabase.rpc('rpc_get_ticket_detailed_by_id', { ticket_id: cleanTicketId });
+      const ticket = data && data.length > 0 ? data[0] : null;
 
       if (error || !ticket) {
         return { valid: false, message: 'Invalid or Expired Ticket' };
       }
 
-      if (ticket.status === 'CONFIRMED') {
-        await supabase
-          .from('tickets')
-          .update({ status: 'BOARDED' })
-          .eq('id', cleanTicketId);
+      if ((ticket as any).status === 'CONFIRMED') {
+        await supabase.rpc('rpc_update_ticket_status', { ticket_id: cleanTicketId, ticket_status: 'BOARDED' });
       }
 
       return { 
         valid: true, 
         message: 'Ticket Validated', 
-        passengerName: (ticket.profiles as any)?.name || 'Passenger'
+        passengerName: (ticket as any).passenger_name || 'Passenger'
       };
     } catch (err) {
       console.warn('Supabase scanQR failed, scanning in mock ticket list:', err);
@@ -1035,28 +1004,7 @@ export const conductorApi = {
     }
 
     try {
-      const { data: trip } = await supabase
-        .from('trips')
-        .select('bus_id')
-        .eq('id', tripId)
-        .single();
-
-      if (trip && trip.bus_id) {
-        await supabase
-          .from('buses')
-          .update({
-            current_lat: lat,
-            current_lng: lng,
-            last_updated: new Date().toISOString()
-          })
-          .eq('id', trip.bus_id);
-      }
-
-      await supabase
-        .from('trips')
-        .update({ last_gps_time: new Date().toISOString() })
-        .eq('id', tripId);
-
+      await supabase.rpc('rpc_update_gps', { trip_id: tripId, lat, lng });
       return { success: true };
     } catch (err) {
       console.warn('Supabase updateGPS failed, updating mock bus GPS:', err);
@@ -1074,10 +1022,7 @@ export const conductorApi = {
       return { success: true };
     }
     try {
-      const { error } = await supabase
-        .from('trips')
-        .update({ status: 'COMPLETED' })
-        .eq('id', tripId);
+      const { error } = await supabase.rpc('rpc_end_trip', { trip_id: tripId });
       if (error) throw error;
       return { success: true };
     } catch (err) {

@@ -51,14 +51,9 @@ const App: React.FC = () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          localStorage.setItem('admin_token', session.access_token);
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', session.user.id)
-            .single();
+          const { data: profile } = await supabase.rpc('rpc_get_profile_by_id', { user_uuid: session.user.id });
           if (profile) {
-            localStorage.setItem('user_role', profile.role);
+            localStorage.setItem('user_role', (profile as any).role);
           }
         }
       } catch (err) {
@@ -73,13 +68,9 @@ const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session) {
         localStorage.setItem('admin_token', session.access_token);
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', session.user.id)
-          .single();
+        const { data: profile } = await supabase.rpc('rpc_get_profile_by_id', { user_uuid: session.user.id });
         if (profile) {
-          localStorage.setItem('user_role', profile.role);
+          localStorage.setItem('user_role', (profile as any).role);
         }
       } else {
         localStorage.removeItem('admin_token');

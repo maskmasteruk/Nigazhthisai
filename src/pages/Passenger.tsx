@@ -158,12 +158,9 @@ export const PassengerPage: React.FC = () => {
   // Fetch db stops
   useEffect(() => {
     const fetchStops = async () => {
-      const { data } = await supabase
-        .from('stops')
-        .select('name')
-        .eq('district', selectedDistrict);
+      const { data } = await supabase.rpc('rpc_get_stops_by_district', { district_name: selectedDistrict });
       if (data && data.length > 0) {
-        setDbStops(data.map(s => s.name));
+        setDbStops((data as any[]).map(s => s.name));
       } else {
         setDbStops([]);
       }
@@ -178,20 +175,28 @@ export const PassengerPage: React.FC = () => {
     setIsLoading(true);
     try {
       // 1. Fetch running trips in district
-      const { data: tripsData } = await supabase
-        .from('trips')
-        .select('*, routes(*), buses(*)')
-        .eq('district', selectedDistrict);
-      setTrips(tripsData || []);
+      const { data: tripsData } = await supabase.rpc('rpc_get_trips_by_district', { district_name: selectedDistrict });
+      const mappedTrips = (tripsData || []).map((t: any) => ({
+        ...t,
+        routes: {
+          code: t.route_code,
+          name: t.route_name,
+          stops: t.stops
+        },
+        buses: {
+          registration_number: t.bus_registration_number,
+          eta: t.bus_eta,
+          capacity: t.bus_capacity,
+          current_occupancy: t.bus_current_occupancy,
+          fare: t.bus_fare
+        }
+      }));
+      setTrips(mappedTrips || []);
 
       // 2. Fetch user's booked tickets
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data: ticketsData } = await supabase
-          .from('tickets')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('timestamp', { ascending: false });
+        const { data: ticketsData } = await supabase.rpc('rpc_get_tickets_by_user_id', { passenger_user_id: user.id });
         setTickets(ticketsData || []);
       }
     } catch (err) {
@@ -277,11 +282,21 @@ export const PassengerPage: React.FC = () => {
 
       let ticket = null;
       try {
-        const { data, error } = await supabase
-          .from('tickets')
-          .insert([ticketPayload])
-          .select()
-          .single();
+        const { data, error } = await supabase.rpc('rpc_insert_ticket', {
+          ticket_id: ticketPayload.id,
+          user_id: ticketPayload.user_id,
+          trip_id: ticketPayload.trip_id,
+          bus_id: ticketPayload.bus_id,
+          bus_name: ticketPayload.bus_name,
+          from_stop: ticketPayload.from_stop,
+          to_stop: ticketPayload.to_stop,
+          seats: ticketPayload.seats,
+          fare: ticketPayload.fare,
+          channel: ticketPayload.channel,
+          status: ticketPayload.status,
+          qr_payload: ticketPayload.qr_payload,
+          ticket_date: ticketPayload.date
+        });
           
         if (error) {
           console.warn('Supabase booking insert returned error, using local fallback:', error);
@@ -310,14 +325,12 @@ export const PassengerPage: React.FC = () => {
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const { error } = await supabase
-        .from('complaints')
-        .insert([{
-          bus_id: selectedTrip?.bus_id || '32',
-          type: complaintType,
-          description: complaintDesc,
-          user_id: user?.id || null
-        }]);
+      const { error } = await supabase.rpc('rpc_insert_complaint', {
+        bus_id: selectedTrip?.bus_id || '32',
+        type: complaintType,
+        description: complaintDesc,
+        user_id: user?.id || null
+      });
         
       if (error) throw error;
       

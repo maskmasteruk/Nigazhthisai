@@ -101,13 +101,13 @@ export const ConductorPage: React.FC = () => {
   useEffect(() => {
     const fetchBuses = async () => {
       try {
-        const { data } = await supabase.from('buses').select('*, routes(*)').order('id', { ascending: true });
+        const { data } = await supabase.rpc('rpc_get_buses_with_routes');
         if (data && data.length > 0) {
-          setBuses(data.map(b => ({
-            bus_id: b.id,
-            number_plate: b.registration_number,
-            route_name: b.routes ? `Route ${b.routes.code}: ${b.routes.name}` : 'General Route',
-            stops: b.routes?.stops || ['Old Bus Stand', 'Pushpa Theatre', 'Kumar Nagar', 'Avinashi']
+          setBuses((data as any[]).map(b => ({
+            bus_id: b.bus_id,
+            number_plate: b.number_plate,
+            route_name: b.route_name,
+            stops: b.stops || ['Old Bus Stand', 'Pushpa Theatre', 'Kumar Nagar', 'Avinashi']
           })));
         }
       } catch (err) {
@@ -255,6 +255,19 @@ export const ConductorPage: React.FC = () => {
     try {
       const response = await conductorApi.verifyOTP(phone, otp);
       
+      if (response.user.role !== 'CONDUCTOR') {
+        try {
+          await supabase.auth.signOut();
+        } catch (signOutErr) {
+          console.error('Failed to sign out after role mismatch:', signOutErr);
+        }
+        localStorage.removeItem('conductor_jwt');
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('user_role');
+        setJwt(null);
+        throw new Error("Unauthorized: Your account does not have the specified role 'CONDUCTOR'");
+      }
+
       localStorage.setItem('conductor_jwt', response.token || 'mock-token');
       localStorage.setItem('admin_token', response.token || 'mock-token');
       localStorage.setItem('user_role', 'CONDUCTOR');
@@ -320,26 +333,25 @@ export const ConductorPage: React.FC = () => {
       let routeId = null;
       let bus = null;
       try {
-        const { data } = await supabase.from('buses').select('*').eq('id', activeBusId).single();
+        const { data } = await supabase.rpc('rpc_get_bus_by_id', { bus_id: activeBusId });
         bus = data;
-        routeId = bus?.route_id || null;
+        routeId = (bus as any)?.route_id || null;
       } catch (err) {
         console.warn('Failed to query bus info from Supabase:', err);
       }
 
       try {
-        const { error } = await supabase
-          .from('trips')
-          .insert([{
-            id: generatedTripId,
-            route_id: routeId,
-            bus_id: activeBusId,
-            driver_name: 'Driver Name',
-            conductor_name: conductorIdInput,
-            status: 'RUNNING',
-            district: bus?.district || 'Tiruppur',
-            zone: bus?.zone || 'West'
-          }]);
+        const { error } = await supabase.rpc('rpc_add_trip', {
+          trip_id: generatedTripId,
+          route_id: routeId,
+          bus_id: activeBusId,
+          driver_name: 'Driver Name',
+          conductor_name: conductorIdInput,
+          status: 'RUNNING',
+          start_time: new Date().toLocaleTimeString(),
+          district: (bus as any)?.district || 'Tiruppur',
+          zone: (bus as any)?.zone || 'West'
+        });
 
         if (error) {
           console.warn('Supabase trips insert returned error, using local fallback:', error);
@@ -392,22 +404,21 @@ export const ConductorPage: React.FC = () => {
       const generatedTicketId = `NIG-${Math.floor(100000 + Math.random() * 900000)}`;
       
       try {
-        const { error } = await supabase
-          .from('tickets')
-          .insert([{
-            id: generatedTicketId,
-            trip_id: activeTripId,
-            bus_id: activeBusId,
-            bus_name: activeRouteName || 'Bus Route',
-            from_stop: boardingStop,
-            to_stop: destinationStop,
-            seats: passengersCount,
-            fare: totalCalculatedFare,
-            channel: 'ETM',
-            status: 'BOARDED',
-            qr_payload: `VALID:${generatedTicketId}`,
-            date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-          }]);
+        const { error } = await supabase.rpc('rpc_insert_ticket', {
+          ticket_id: generatedTicketId,
+          user_id: null,
+          trip_id: activeTripId,
+          bus_id: activeBusId,
+          bus_name: activeRouteName || 'Bus Route',
+          from_stop: boardingStop,
+          to_stop: destinationStop,
+          seats: passengersCount,
+          fare: totalCalculatedFare,
+          channel: 'ETM',
+          status: 'BOARDED',
+          qr_payload: `VALID:${generatedTicketId}`,
+          ticket_date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        });
 
         if (error) {
           console.warn('Supabase ticket insert returned error, using local fallback:', error);
