@@ -1,0 +1,8 @@
+{
+  "name": "Nigazhthisai",
+  "description": "A smart and inclusive public bus transportation platform featuring real-time tracking, safety reporting, accessibility tools, and intelligent day-based dynamic route scheduling for enhanced operational efficiency.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ]
+}
