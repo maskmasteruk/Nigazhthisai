@@ -59,6 +59,20 @@ const App: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
+    const getSessionRole = async (session: any) => {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Could not load session profile; using auth metadata instead.', error);
+      }
+
+      return profile?.role || session.user.user_metadata?.role || 'PASSENGER';
+    };
+
     const initAuth = async () => {
       try {
         const accessToken = getCookie('sb-access-token');
@@ -74,7 +88,7 @@ const App: React.FC = () => {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           localStorage.setItem('admin_token', session.access_token);
-          const role = session.user.user_metadata?.role || 'PASSENGER';
+          const role = await getSessionRole(session);
           localStorage.setItem('user_role', role);
         }
       } catch (err) {
@@ -96,7 +110,7 @@ const App: React.FC = () => {
           setCookie('sb-refresh-token', session.refresh_token, 604800); // 7 days
         }
         
-        const role = session.user.user_metadata?.role || 'PASSENGER';
+        const role = await getSessionRole(session);
         localStorage.setItem('user_role', role);
       } else if (event === 'SIGNED_OUT') {
         localStorage.removeItem('admin_token');
@@ -214,7 +228,7 @@ const App: React.FC = () => {
           } />
 
           <Route path="/settings" element={
-            <ProtectedRoute allowedRoles={['ADMIN']}>
+            <ProtectedRoute allowedRoles={['MASTER_ADMIN', 'ADMIN']}>
               <Settings />
             </ProtectedRoute>
           } />

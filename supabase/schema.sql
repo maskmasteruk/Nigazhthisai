@@ -10,7 +10,7 @@ create table public.profiles (
   email text unique not null,
   name text,
   phone text,
-  role text not null default 'PASSENGER' check (role in ('MASTER_ADMIN', 'ADMIN', 'OPERATIONS', 'FINANCE', 'SUPPORT', 'CONDUCTOR', 'PASSENGER')),
+  role text not null default 'PASSENGER' check (role in ('MASTER_ADMIN', 'ADMIN', 'DRIVER', 'CONDUCTOR', 'PASSENGER')),
   status text not null default 'ACTIVE' check (status in ('ACTIVE', 'INACTIVE')),
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null

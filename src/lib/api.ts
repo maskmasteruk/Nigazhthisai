@@ -1,4 +1,17 @@
 import { supabase } from './supabase';
+import { isPlaceholder } from './supabase';
+
+const getErrorMessage = (error: unknown, fallback = 'Something went wrong') => {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
+  if (error && typeof error === 'object') {
+    const candidate = error as { message?: unknown; error_description?: unknown; details?: unknown };
+    for (const value of [candidate.message, candidate.error_description, candidate.details]) {
+      if (typeof value === 'string' && value.trim() && value !== '{}') return value;
+    }
+  }
+  return fallback;
+};
 
 // Helper to convert DB rows for frontend compatibility
 const mapBus = (b: any) => {
@@ -12,15 +25,34 @@ const mapBus = (b: any) => {
 
 export const adminApi = {
   login: async (credentials: any) => {
+    if (isPlaceholder) {
+      throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to your environment.');
+    }
+
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email: credentials.email,
       password: credentials.password
     });
-    if (authError) throw authError;
+    if (authError) throw new Error(getErrorMessage(authError, 'Invalid email or password'));
     if (!authData.user) throw new Error('Authentication failed');
 
-    const name = authData.user.user_metadata?.name || authData.user.email?.split('@')[0] || 'User';
-    const role = authData.user.user_metadata?.role || 'PASSENGER';
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('name, role, status')
+      .eq('id', authData.user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.warn('Could not load signed-in user profile; using auth metadata instead.', profileError);
+    }
+
+    const name = profile?.name || authData.user.user_metadata?.name || authData.user.email?.split('@')[0] || 'User';
+    const role = profile?.role || authData.user.user_metadata?.role || 'PASSENGER';
+
+    if (profile?.status === 'INACTIVE' || authData.user.user_metadata?.status === 'INACTIVE') {
+      await supabase.auth.signOut();
+      throw new Error('This account is inactive. Contact the system administrator.');
+    }
 
     return { 
       token: authData.session?.access_token, 

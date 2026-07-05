@@ -7,13 +7,27 @@ import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { getCookie } from '../utils/cookies';
 
+type LoginRole = 'MASTER_ADMIN' | 'ADMIN' | 'DRIVER' | 'CONDUCTOR' | 'PASSENGER';
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message && error.message !== '{}') return error.message;
+  if (typeof error === 'string' && error.trim() && error !== '{}') return error;
+  if (error && typeof error === 'object') {
+    const candidate = error as { message?: unknown; error_description?: unknown; details?: unknown };
+    for (const value of [candidate.message, candidate.error_description, candidate.details]) {
+      if (typeof value === 'string' && value.trim() && value !== '{}') return value;
+    }
+  }
+  return fallback;
+};
+
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [showOtp, setShowOtp] = useState(false);
-  const [role, setRole] = useState<'MASTER_ADMIN' | 'ADMIN' | 'CONDUCTOR' | 'PASSENGER'>('MASTER_ADMIN');
+  const [role, setRole] = useState<LoginRole>('MASTER_ADMIN');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -64,7 +78,7 @@ export const LoginPage: React.FC = () => {
     checkAutoLogin();
   }, [navigate]);
 
-  const handleRoleChange = (r: any) => {
+  const handleRoleChange = (r: LoginRole) => {
     setRole(r);
   };
 
@@ -115,8 +129,8 @@ export const LoginPage: React.FC = () => {
           navigate('/dashboard');
         }
       }
-    } catch (error: any) {
-      toast.error(error.message || 'Invalid credentials');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Invalid credentials'));
     } finally {
       setIsLoading(false);
     }

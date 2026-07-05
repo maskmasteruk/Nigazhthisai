@@ -643,6 +643,7 @@ create or replace function public.rpc_driver_end_trip(
 returns jsonb
 language plpgsql
 security definer
+set search_path = public, auth, extensions
 as $$
 declare
   v_route_id integer;
@@ -873,10 +874,25 @@ language plpgsql
 security definer
 as $$
 declare
-  new_user_id uuid := gen_random_uuid();
+  new_user_id uuid := extensions.gen_random_uuid();
   v_password_hash text;
+  v_actor_role text;
   response jsonb;
 begin
+  select coalesce(u.raw_user_meta_data->>'role', p.role)
+  into v_actor_role
+  from auth.users u
+  left join public.profiles p on p.id = u.id
+  where u.id = auth.uid();
+
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  if v_actor_role <> 'MASTER_ADMIN' then
+    raise exception 'Only Master Admin can create users.';
+  end if;
+
   -- Validate inputs
   if p_email is null or p_email = '' then
     raise exception 'Email is required';
@@ -887,9 +903,12 @@ begin
   if p_role is null or p_role = '' then
     raise exception 'Role is required';
   end if;
+  if p_role not in ('MASTER_ADMIN', 'ADMIN', 'DRIVER', 'CONDUCTOR', 'PASSENGER') then
+    raise exception 'Invalid role: %', p_role;
+  end if;
 
   -- Hash the password using bcrypt
-  v_password_hash := crypt(p_password, gen_salt('bf'));
+  v_password_hash := extensions.crypt(p_password, extensions.gen_salt('bf'));
 
   -- Check if user already exists
   if exists (select 1 from auth.users where email = lower(p_email)) then
@@ -926,6 +945,17 @@ begin
     'authenticated',
     ''
   );
+
+  insert into public.profiles (id, email, name, phone, role, status)
+  values (new_user_id, lower(p_email), p_name, p_phone, p_role, 'ACTIVE')
+  on conflict (id) do update
+  set
+    email = excluded.email,
+    name = excluded.name,
+    phone = excluded.phone,
+    role = excluded.role,
+    status = excluded.status,
+    updated_at = now();
 
   response := json_build_object(
     'success', true,
@@ -992,8 +1022,25 @@ create or replace function public.rpc_delete_user(p_user_id uuid)
 returns json
 language plpgsql
 security definer
+set search_path = public, auth, extensions
 as $$
+declare
+  v_actor_role text;
 begin
+  select coalesce(u.raw_user_meta_data->>'role', p.role)
+  into v_actor_role
+  from auth.users u
+  left join public.profiles p on p.id = u.id
+  where u.id = auth.uid();
+
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  if v_actor_role <> 'MASTER_ADMIN' then
+    raise exception 'Only Master Admin can delete users.';
+  end if;
+
   -- Delete from auth.users
   delete from auth.users where id = p_user_id;
   
@@ -1009,12 +1056,54 @@ create or replace function public.rpc_update_user(p_user_id uuid, p_name text, p
 returns json
 language plpgsql
 security definer
+set search_path = public, auth, extensions
 as $$
+declare
+  v_actor_role text;
+  v_email text;
 begin
+  select coalesce(u.raw_user_meta_data->>'role', p.role)
+  into v_actor_role
+  from auth.users u
+  left join public.profiles p on p.id = u.id
+  where u.id = auth.uid();
+
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  if v_actor_role <> 'MASTER_ADMIN' then
+    raise exception 'Only Master Admin can update users.';
+  end if;
+
+  if p_role not in ('MASTER_ADMIN', 'ADMIN', 'DRIVER', 'CONDUCTOR', 'PASSENGER') then
+    raise exception 'Invalid role: %', p_role;
+  end if;
+
+  if p_status not in ('ACTIVE', 'INACTIVE') then
+    raise exception 'Invalid status: %', p_status;
+  end if;
+
   update auth.users
   set
-    raw_user_meta_data = raw_user_meta_data || jsonb_build_object('name', p_name, 'phone', p_phone, 'role', p_role, 'status', p_status)
-  where id = p_user_id;
+    raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('name', p_name, 'phone', p_phone, 'role', p_role, 'status', p_status),
+    updated_at = now()
+  where id = p_user_id
+  returning email into v_email;
+
+  if v_email is null then
+    raise exception 'User not found';
+  end if;
+
+  insert into public.profiles (id, email, name, phone, role, status)
+  values (p_user_id, v_email, p_name, p_phone, p_role, p_status)
+  on conflict (id) do update
+  set
+    name = excluded.name,
+    phone = excluded.phone,
+    role = excluded.role,
+    status = excluded.status,
+    updated_at = now();
 
   return json_build_object('success', true);
 exception

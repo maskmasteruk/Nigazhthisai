@@ -517,7 +517,7 @@ export const Users: React.FC = () => {
                     className="w-full pl-10 pr-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm appearance-none"
                   >
                     <option value="ACTIVE">Active</option>
-                    <option value="BLOCKED">Blocked</option>
+                    <option value="INACTIVE">Inactive</option>
                   </select>
                 </div>
               </div>
