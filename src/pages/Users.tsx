@@ -18,6 +18,7 @@ import { adminApi } from '../lib/api';
 import { toast } from 'sonner';
 
 export const Users: React.FC = () => {
+  const userRole = localStorage.getItem('user_role') || 'ADMIN';
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,7 +32,7 @@ export const Users: React.FC = () => {
     email: '',
     phone: '',
     password: '',
-    role: 'ADMIN'
+    role: userRole === 'MASTER_ADMIN' ? 'ADMIN' : 'DRIVER'
   });
 
   // Edit User Modal State
@@ -40,7 +41,7 @@ export const Users: React.FC = () => {
   const [editFormData, setEditFormData] = useState({
     name: '',
     phone: '',
-    role: 'ADMIN',
+    role: userRole === 'MASTER_ADMIN' ? 'ADMIN' : 'DRIVER',
     status: 'ACTIVE'
   });
 
@@ -95,7 +96,7 @@ export const Users: React.FC = () => {
           email: '',
           phone: '',
           password: '',
-          role: 'ADMIN'
+          role: userRole === 'MASTER_ADMIN' ? 'ADMIN' : 'DRIVER'
         });
         // Refresh list
         fetchUsers();
@@ -160,6 +161,12 @@ export const Users: React.FC = () => {
 
   const filteredUsers = users
     .filter(user => {
+      if (userRole === 'ADMIN') {
+        return user.role === 'DRIVER' || user.role === 'CONDUCTOR';
+      }
+      return true;
+    })
+    .filter(user => {
       if (roleFilter === 'ALL') return true;
       return user.role === roleFilter;
     })
@@ -193,19 +200,21 @@ export const Users: React.FC = () => {
 
       {/* Role Filter Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
-        {['ALL', 'MASTER_ADMIN', 'ADMIN', 'CONDUCTOR', 'DRIVER', 'PASSENGER'].map((roleOpt) => (
-          <button
-            key={roleOpt}
-            onClick={() => setRoleFilter(roleOpt)}
-            className={`px-4 py-1.5 text-xs font-black uppercase tracking-widest border transition-all rounded-sm whitespace-nowrap active:scale-95 ${
-              roleFilter === roleOpt
-                ? 'bg-slate-950 text-white border-slate-950 shadow-sm'
-                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            {roleOpt.replace('_', ' ')}
-          </button>
-        ))}
+        {['ALL', 'MASTER_ADMIN', 'ADMIN', 'CONDUCTOR', 'DRIVER', 'PASSENGER']
+          .filter(roleOpt => userRole === 'MASTER_ADMIN' || ['ALL', 'CONDUCTOR', 'DRIVER'].includes(roleOpt))
+          .map((roleOpt) => (
+            <button
+              key={roleOpt}
+              onClick={() => setRoleFilter(roleOpt)}
+              className={`px-4 py-1.5 text-xs font-black uppercase tracking-widest border transition-all rounded-sm whitespace-nowrap active:scale-95 ${
+                roleFilter === roleOpt
+                  ? 'bg-slate-950 text-white border-slate-950 shadow-sm'
+                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {roleOpt.replace('_', ' ')}
+            </button>
+          ))}
       </div>
 
       {/* Table */}
@@ -391,11 +400,20 @@ export const Users: React.FC = () => {
                     onChange={handleInputChange}
                     className="w-full pl-10 pr-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm appearance-none"
                   >
-                    <option value="PASSENGER">Passenger</option>
-                    <option value="DRIVER">Driver</option>
-                    <option value="CONDUCTOR">Conductor</option>
-                    <option value="ADMIN">System Administrator</option>
-                    <option value="MASTER_ADMIN">Master Administrator</option>
+                    {userRole === 'MASTER_ADMIN' ? (
+                      <>
+                        <option value="PASSENGER">Passenger</option>
+                        <option value="DRIVER">Driver</option>
+                        <option value="CONDUCTOR">Conductor</option>
+                        <option value="ADMIN">System Administrator</option>
+                        <option value="MASTER_ADMIN">Master Administrator</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="DRIVER">Driver</option>
+                        <option value="CONDUCTOR">Conductor</option>
+                      </>
+                    )}
                   </select>
                 </div>
               </div>
@@ -496,11 +514,20 @@ export const Users: React.FC = () => {
                     onChange={handleEditInputChange}
                     className="w-full pl-10 pr-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm appearance-none"
                   >
-                    <option value="PASSENGER">Passenger</option>
-                    <option value="DRIVER">Driver</option>
-                    <option value="CONDUCTOR">Conductor</option>
-                    <option value="ADMIN">System Administrator</option>
-                    <option value="MASTER_ADMIN">Master Administrator</option>
+                    {userRole === 'MASTER_ADMIN' ? (
+                      <>
+                        <option value="PASSENGER">Passenger</option>
+                        <option value="DRIVER">Driver</option>
+                        <option value="CONDUCTOR">Conductor</option>
+                        <option value="ADMIN">System Administrator</option>
+                        <option value="MASTER_ADMIN">Master Administrator</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="DRIVER">Driver</option>
+                        <option value="CONDUCTOR">Conductor</option>
+                      </>
+                    )}
                   </select>
                 </div>
               </div>

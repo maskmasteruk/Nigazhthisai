@@ -16,6 +16,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { adminApi } from '../lib/api';
 import { toast } from 'sonner';
+import { supabase } from '../lib/supabase';
 
 export const LiveMonitoring: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -30,6 +31,20 @@ export const LiveMonitoring: React.FC = () => {
 
   const DISTRICTS = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur', 'Trichy', 'Erode'];
   const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
+
+  useEffect(() => {
+    const fetchAdminMetadata = async () => {
+      if (userRole === 'ADMIN') {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.user_metadata) {
+          const meta = session.user.user_metadata;
+          if (meta.district) setSelectedDistrict(meta.district);
+          if (meta.zone) setSelectedZone(meta.zone);
+        }
+      }
+    };
+    fetchAdminMetadata();
+  }, [userRole]);
 
   useEffect(() => {
     const fetchLive = async () => {

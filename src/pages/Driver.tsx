@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 import { driverApi, adminApi } from '../lib/api';
+import { eraseCookie } from '../utils/cookies';
 
 const BUS_FLEET = [
   { bus_id: 'bus-1', number_plate: 'TN 38 AB 1234', route_name: 'Route 32: Tiruppur - Avinashi', stops: ['Tiruppur Old Bus Stand', 'Pushpa Theatre', 'Kumar Nagar', 'Thendral Nagar', 'Avinashi'] },
@@ -246,13 +247,17 @@ export const DriverPage: React.FC = () => {
     setCurrentView('SELECT_BUS');
   };
 
-  const handleLogOut = () => {
-    localStorage.removeItem('admin_token');
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('driver_bus_id');
-    localStorage.removeItem('driver_route_name');
-    localStorage.removeItem('driver_number_plate');
-    localStorage.removeItem('driver_trip_id');
+  const handleLogOut = async () => {
+    localStorage.clear();
+    eraseCookie('sb-access-token');
+    eraseCookie('sb-refresh-token');
+
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Error signing out from Supabase:', e);
+    }
+    
     navigate('/login');
     toast.success('Successfully logged out.');
   };

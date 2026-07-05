@@ -60,17 +60,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const getSessionRole = async (session: any) => {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .maybeSingle();
-
-      if (error) {
-        console.warn('Could not load session profile; using auth metadata instead.', error);
-      }
-
-      return profile?.role || session.user.user_metadata?.role || 'PASSENGER';
+      return session.user.user_metadata?.role || 'PASSENGER';
     };
 
     const initAuth = async () => {
@@ -140,7 +130,7 @@ const App: React.FC = () => {
 
   return (
     <LanguageProvider>
-      <Router>
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Toaster position="top-right" richColors />
         <Routes>
           {/* Public Routes */}

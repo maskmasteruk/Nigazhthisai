@@ -33,6 +33,7 @@ import { NigazhthisaiIcon } from '../components/NigazhthisaiLogo';
 
 // Nigazhthisai Hooks & Types
 import { useNigazhthisai } from '../hooks/useNigazhthisai';
+import { eraseCookie } from '../utils/cookies';
 
 type View = 
   | 'HOME'
@@ -359,9 +360,16 @@ export const PassengerPage: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    localStorage.removeItem('admin_token');
-    localStorage.removeItem('user_role');
+    localStorage.clear();
+    eraseCookie('sb-access-token');
+    eraseCookie('sb-refresh-token');
+
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Error signing out from Supabase:', e);
+    }
+    
     navigate('/login');
   };
 
@@ -528,7 +536,7 @@ export const PassengerPage: React.FC = () => {
             key={service.id}
             onClick={() => {
               if (service.id === 'TICKET') {
-                const liveTicket = tickets.find(t => t.trip_status === 'RUNNING' && (t.status === 'CONFIRMED' || t.status === 'BOARDED'));
+                const liveTicket = tickets.find(t => t.status === 'CONFIRMED' || t.status === 'BOARDED');
                 if (liveTicket) {
                   setSelectedTicket(liveTicket);
                   setCurrentView('TICKET');
@@ -1082,7 +1090,7 @@ export const PassengerPage: React.FC = () => {
                     key={i} 
                     onClick={() => {
                       if (item.id === 'TICKET') {
-                        const liveTicket = tickets.find(t => t.trip_status === 'RUNNING' && (t.status === 'CONFIRMED' || t.status === 'BOARDED'));
+                        const liveTicket = tickets.find(t => t.status === 'CONFIRMED' || t.status === 'BOARDED');
                         if (liveTicket) {
                           setSelectedTicket(liveTicket);
                           setCurrentView('TICKET');

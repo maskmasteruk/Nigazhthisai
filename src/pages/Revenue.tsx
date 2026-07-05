@@ -22,6 +22,7 @@ import {
 } from 'recharts';
 import { adminApi } from '../lib/api';
 import { toast } from 'sonner';
+import { supabase } from '../lib/supabase';
 
 export const Revenue: React.FC = () => {
   const [data, setData] = useState<any>(null);
@@ -33,6 +34,20 @@ export const Revenue: React.FC = () => {
 
   const DISTRICTS = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur', 'Trichy', 'Erode'];
   const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
+
+  useEffect(() => {
+    const fetchAdminMetadata = async () => {
+      if (userRole === 'ADMIN') {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.user_metadata) {
+          const meta = session.user.user_metadata;
+          if (meta.district) setSelectedDistrict(meta.district);
+          if (meta.zone) setSelectedZone(meta.zone);
+        }
+      }
+    };
+    fetchAdminMetadata();
+  }, [userRole]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -55,7 +70,7 @@ export const Revenue: React.FC = () => {
     });
   };
 
-  if (loading) {
+  if (loading || !data) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3">
         <Loader2 className="animate-spin text-primary" size={32} />

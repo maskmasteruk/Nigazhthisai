@@ -92,8 +92,8 @@ export const OperationalTripSchedule: React.FC = () => {
       setBuses(busesList);
       setTrips(tripsList);
 
-      const driverUsers = usersList.filter((u: any) => u.role === 'DRIVER' && u.status === 'ACTIVE');
-      const conductorUsers = usersList.filter((u: any) => u.role === 'CONDUCTOR' && u.status === 'ACTIVE');
+      const driverUsers = usersList.filter((u: any) => u.role?.toUpperCase() === 'DRIVER' && u.status?.toUpperCase() === 'ACTIVE');
+      const conductorUsers = usersList.filter((u: any) => u.role?.toUpperCase() === 'CONDUCTOR' && u.status?.toUpperCase() === 'ACTIVE');
       setDrivers(driverUsers);
       setConductors(conductorUsers);
 
@@ -211,7 +211,7 @@ export const OperationalTripSchedule: React.FC = () => {
 
       <OperationalStepIndicator currentStep="schedule" />
 
-      {isLoadingRoute ? (
+      {isLoadingRoute || !route ? (
         <div className="bg-white border-4 border-slate-900 p-20 text-center shadow-[12px_12px_0px_0px_rgba(15,23,42,1)]">
           <Loader2 size={36} className="animate-spin text-slate-900 mx-auto mb-4" />
           <p className="text-sm font-black uppercase tracking-widest text-slate-400">Loading operational details...</p>

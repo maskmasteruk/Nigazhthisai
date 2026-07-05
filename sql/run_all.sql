@@ -1172,10 +1172,9 @@ declare
   v_actor_role text;
   response jsonb;
 begin
-  select coalesce(u.raw_user_meta_data->>'role', p.role)
+  select u.raw_user_meta_data->>'role'
   into v_actor_role
   from auth.users u
-  left join public.profiles p on p.id = u.id
   where u.id = auth.uid();
 
   if auth.uid() is null then
@@ -1215,20 +1214,25 @@ begin
     email,
     encrypted_password,
     email_confirmed_at,
-    confirmed_at,
     raw_app_meta_data,
     raw_user_meta_data,
     created_at,
     updated_at,
     role,
     aud,
-    confirmation_token
+    confirmation_token,
+    email_change_token_new,
+    recovery_token,
+    email_change,
+    phone_change,
+    reauthentication_token,
+    email_change_token_current,
+    phone_change_token
   ) values (
     new_user_id,
     '00000000-0000-0000-0000-000000000000',
     lower(p_email),
     v_password_hash,
-    now(),
     now(),
     json_build_object('provider', 'email', 'providers', array['email'])::jsonb,
     json_build_object('name', p_name, 'role', p_role, 'phone', p_phone, 'status', 'ACTIVE')::jsonb,
@@ -1236,19 +1240,17 @@ begin
     now(),
     'authenticated',
     'authenticated',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
     ''
   );
 
-  insert into public.profiles (id, email, name, phone, role, status)
-  values (new_user_id, lower(p_email), p_name, p_phone, p_role, 'ACTIVE')
-  on conflict (id) do update
-  set
-    email = excluded.email,
-    name = excluded.name,
-    phone = excluded.phone,
-    role = excluded.role,
-    status = excluded.status,
-    updated_at = now();
+
 
   response := json_build_object(
     'success', true,
@@ -1320,10 +1322,9 @@ as $$
 declare
   v_actor_role text;
 begin
-  select coalesce(u.raw_user_meta_data->>'role', p.role)
+  select u.raw_user_meta_data->>'role'
   into v_actor_role
   from auth.users u
-  left join public.profiles p on p.id = u.id
   where u.id = auth.uid();
 
   if auth.uid() is null then
@@ -1355,10 +1356,9 @@ declare
   v_actor_role text;
   v_email text;
 begin
-  select coalesce(u.raw_user_meta_data->>'role', p.role)
+  select u.raw_user_meta_data->>'role'
   into v_actor_role
   from auth.users u
-  left join public.profiles p on p.id = u.id
   where u.id = auth.uid();
 
   if auth.uid() is null then
@@ -1388,15 +1388,7 @@ begin
     raise exception 'User not found';
   end if;
 
-  insert into public.profiles (id, email, name, phone, role, status)
-  values (p_user_id, v_email, p_name, p_phone, p_role, p_status)
-  on conflict (id) do update
-  set
-    name = excluded.name,
-    phone = excluded.phone,
-    role = excluded.role,
-    status = excluded.status,
-    updated_at = now();
+
 
   return json_build_object('success', true);
 exception
@@ -1588,7 +1580,6 @@ BEGIN
       email,
       encrypted_password,
       email_confirmed_at,
-      confirmed_at,
       raw_app_meta_data,
       raw_user_meta_data,
       created_at,
@@ -1601,7 +1592,6 @@ BEGIN
       '00000000-0000-0000-0000-000000000000',
       v_email,
       v_password_hash,
-      now(),
       now(),
       '{"provider": "email", "providers": ["email"]}'::jsonb,
       '{"name": "Nigazhthisai Test User", "role": "PASSENGER"}'::jsonb,

@@ -4,17 +4,7 @@
 create extension if not exists pgcrypto with schema extensions;
 create extension if not exists "uuid-ossp" with schema extensions;
 
--- PROFILES TABLE (linked to auth.users)
-create table public.profiles (
-  id uuid references auth.users on delete cascade primary key,
-  email text unique not null,
-  name text,
-  phone text,
-  role text not null default 'PASSENGER' check (role in ('MASTER_ADMIN', 'ADMIN', 'DRIVER', 'CONDUCTOR', 'PASSENGER')),
-  status text not null default 'ACTIVE' check (status in ('ACTIVE', 'INACTIVE')),
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
+-- PROFILES TABLE REMOVED
 
 -- ROUTES TABLE
 create table public.routes (
@@ -65,6 +55,7 @@ create table public.trips (
   conductor_name text,
   start_time text, -- e.g., '08:00 AM'
   end_time text,
+  actual_start_time text,
   status text not null default 'PLANNED' check (status in ('PLANNED', 'SCHEDULED', 'RUNNING', 'COMPLETED', 'CANCELLED')),
   occupancy integer not null default 0,
   district text,
@@ -77,6 +68,13 @@ create table public.trips (
   onboard_passengers integer not null default 0,
   occupancy_percent integer not null default 0,
   etm_status text not null default 'OFFLINE' check (etm_status in ('ONLINE', 'OFFLINE')),
+  driver_ended boolean default false,
+  conductor_ended boolean default false,
+  driver_start_lat numeric,
+  driver_start_lng numeric,
+  driver_end_lat numeric,
+  driver_end_lng numeric,
+  gps_verified boolean default false,
 
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
@@ -85,7 +83,7 @@ create table public.trips (
 -- TICKETS TABLE
 create table public.tickets (
   id text primary key, -- Custom ID like 'NIG-123456' or 'TK6FQRGO'
-  user_id uuid references public.profiles(id) on delete set null,
+  user_id uuid references auth.users(id) on delete set null,
   trip_id text references public.trips(id) on delete cascade,
   bus_id text references public.buses(id) on delete set null,
   bus_name text,
@@ -108,7 +106,7 @@ create table public.tickets (
 create table public.bookings (
   id text primary key, -- Custom ID like 'BK-123456'
   bus_id text references public.buses(id) on delete cascade,
-  user_id uuid references public.profiles(id) on delete set null,
+  user_id uuid references auth.users(id) on delete set null,
   from_stop text not null,
   to_stop text not null,
   seats integer not null default 1,
@@ -133,14 +131,14 @@ create table public.complaints (
   bus_id text references public.buses(id) on delete cascade,
   type text not null,
   description text not null,
-  user_id uuid references public.profiles(id) on delete set null,
+  user_id uuid references auth.users(id) on delete set null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
 -- ALERTS TABLE
 create table public.alerts (
   id serial primary key,
-  type text not null check (type in ('GPS_OFFLINE', 'HIGH_LOAD', 'LATE_TRIP', 'IDLE_BUS')),
+  type text not null check (type in ('GPS_OFFLINE', 'HIGH_LOAD', 'LATE_TRIP', 'IDLE_BUS', 'SOS')),
   message text not null,
   bus_id text references public.buses(id) on delete cascade,
   idle_duration integer,
@@ -191,46 +189,38 @@ begin
 end;
 $$ language plpgsql;
 
-create trigger update_profiles_updated_at before update on public.profiles for each row execute procedure public.update_updated_at_column();
+
 create trigger update_routes_updated_at before update on public.routes for each row execute procedure public.update_updated_at_column();
 create trigger update_buses_updated_at before update on public.buses for each row execute procedure public.update_updated_at_column();
 create trigger update_trips_updated_at before update on public.trips for each row execute procedure public.update_updated_at_column();
 create trigger update_tickets_updated_at before update on public.tickets for each row execute procedure public.update_updated_at_column();
 create trigger update_bookings_updated_at before update on public.bookings for each row execute procedure public.update_updated_at_column();
 
--- AUTOMATIC PROFILE CREATION TRIGGER ON AUTH SIGNUP
+-- AUTOMATIC PROFILE CREATION / METADATA DEFAULTING TRIGGER ON AUTH SIGNUP
 create or replace function public.handle_new_user()
 returns trigger as $$
-declare
-  default_role text;
-  default_name text;
 begin
-  default_role := coalesce(new.raw_user_meta_data->>'role', 'PASSENGER');
-  default_name := coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1));
-  
-  insert into public.profiles (id, email, name, phone, role, status)
-  values (
-    new.id,
-    new.email,
-    default_name,
-    new.phone,
-    default_role,
-    'ACTIVE'
-  )
-  on conflict (id) do update
-  set email = excluded.email,
-      phone = coalesce(excluded.phone, public.profiles.phone),
-      name = coalesce(excluded.name, public.profiles.name);
+  new.raw_user_meta_data := coalesce(new.raw_user_meta_data, '{}'::jsonb) || 
+    jsonb_build_object(
+      'role', coalesce(new.raw_user_meta_data->>'role', 'PASSENGER'),
+      'name', coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
+      'status', coalesce(new.raw_user_meta_data->>'status', 'ACTIVE'),
+      'phone', coalesce(new.raw_user_meta_data->>'phone', new.phone, '')
+    );
+  new.created_at := coalesce(new.created_at, now());
+  new.updated_at := coalesce(new.updated_at, now());
   return new;
 end;
 $$ language plpgsql security definer;
 
+drop trigger if exists on_auth_user_created on auth.users;
+
 create or replace trigger on_auth_user_created
-  after insert on auth.users
+  before insert on auth.users
   for each row execute procedure public.handle_new_user();
 
 -- ENABLE ROW LEVEL SECURITY (RLS)
-alter table public.profiles enable row level security;
+
 alter table public.routes enable row level security;
 alter table public.buses enable row level security;
 alter table public.trips enable row level security;
@@ -244,18 +234,7 @@ alter table public.stops enable row level security;
 
 -- RLS POLICIES
 
--- PROFILES
-create policy "Read own profile" on public.profiles for select using (auth.uid() = id);
-create policy "Admins read all profiles" on public.profiles for select using (
-  (auth.jwt() -> 'user_metadata' ->> 'role') in ('MASTER_ADMIN', 'ADMIN', 'OPERATIONS')
-);
-create policy "Update own profile" on public.profiles for update using (auth.uid() = id);
-create policy "Admins update any profile" on public.profiles for update using (
-  (auth.jwt() -> 'user_metadata' ->> 'role') in ('MASTER_ADMIN', 'ADMIN')
-);
-create policy "Admins delete profiles" on public.profiles for delete using (
-  (auth.jwt() -> 'user_metadata' ->> 'role') in ('MASTER_ADMIN', 'ADMIN')
-);
+
 
 -- ROUTES
 create policy "Allow read routes" on public.routes for select using (true);
@@ -336,15 +315,17 @@ create policy "Admins manage stops" on public.stops for all using (
 -- SEED DEFAULT USERS (Uses pgcrypto to hash passwords if executing via fresh project script)
 -- Password for master@nigazhthisai.com is 'master123'
 -- Password for admin@nigazhthisai.com is 'admin123'
+-- Password for driver@nigazhthisai.com is 'driver123'
 -- Password for conductor@nigazhthisai.com is 'conductor123'
 -- Password for passenger@nigazhthisai.com is 'passenger123'
 
 insert into auth.users (id, instance_id, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, aud, role)
 values 
-  ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', '00000000-0000-0000-0000-000000000000', 'master@nigazhthisai.com', extensions.crypt('master123', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Master Admin","role":"MASTER_ADMIN"}', 'authenticated', 'authenticated'),
-  ('b2c3d4e5-f67a-8b9c-0d1e-2f3a4b5c6d7e', '00000000-0000-0000-0000-000000000000', 'admin@nigazhthisai.com', extensions.crypt('admin123', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Admin Manager","role":"ADMIN"}', 'authenticated', 'authenticated'),
-  ('c3d4e5f6-7a8b-9c0d-1e2f-3a4b5c6d7e8f', '00000000-0000-0000-0000-000000000000', 'conductor@nigazhthisai.com', extensions.crypt('conductor123', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Conductor Ramesh","role":"CONDUCTOR"}', 'authenticated', 'authenticated'),
-  ('d4e5f67a-8b9c-0d1e-2f3a-4b5c6d7e8f9a', '00000000-0000-0000-0000-000000000000', 'passenger@nigazhthisai.com', extensions.crypt('passenger123', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Passenger Kumar","role":"PASSENGER"}', 'authenticated', 'authenticated')
+  ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', '00000000-0000-0000-0000-000000000000', 'master@nigazhthisai.com', extensions.crypt('master123', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Master Admin","role":"MASTER_ADMIN","status":"ACTIVE"}', 'authenticated', 'authenticated'),
+  ('b2c3d4e5-f67a-8b9c-0d1e-2f3a4b5c6d7e', '00000000-0000-0000-0000-000000000000', 'admin@nigazhthisai.com', extensions.crypt('admin123', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Admin Manager","role":"ADMIN","status":"ACTIVE"}', 'authenticated', 'authenticated'),
+  ('e5f67a8b-9c0d-1e2f-3a4b-5c6d7e8f9a0b', '00000000-0000-0000-0000-000000000000', 'driver@nigazhthisai.com', extensions.crypt('driver123', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Driver Muthu","role":"DRIVER","status":"ACTIVE"}', 'authenticated', 'authenticated'),
+  ('c3d4e5f6-7a8b-9c0d-1e2f-3a4b5c6d7e8f', '00000000-0000-0000-0000-000000000000', 'conductor@nigazhthisai.com', extensions.crypt('conductor123', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Conductor Ramesh","role":"CONDUCTOR","status":"ACTIVE"}', 'authenticated', 'authenticated'),
+  ('d4e5f67a-8b9c-0d1e-2f3a-4b5c6d7e8f9a', '00000000-0000-0000-0000-000000000000', 'passenger@nigazhthisai.com', extensions.crypt('passenger123', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Passenger Kumar","role":"PASSENGER","status":"ACTIVE"}', 'authenticated', 'authenticated')
 on conflict (id) do nothing;
 
 -- SEED MASTER STOPS

@@ -35,6 +35,7 @@ import { adminApi } from '../lib/api';
 import { DashboardStats } from '../types/admin';
 import { useTranslation } from '../lib/i18n';
 import { getFeatureFlags, setFeatureFlags } from '../lib/featureFlags';
+import { supabase } from '../lib/supabase';
 
 const COLORS = ['#0D2A5D', '#D97F00', '#10b981', '#ef4444'];
 
@@ -60,6 +61,20 @@ export const Dashboard: React.FC = () => {
     // In real app, this would be a toast
     console.log(`Feature ${id} toggled`);
   };
+
+  useEffect(() => {
+    const fetchAdminMetadata = async () => {
+      if (userRole === 'ADMIN') {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.user_metadata) {
+          const meta = session.user.user_metadata;
+          if (meta.district) setSelectedDistrict(meta.district);
+          if (meta.zone) setSelectedZone(meta.zone);
+        }
+      }
+    };
+    fetchAdminMetadata();
+  }, [userRole]);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -145,7 +160,7 @@ export const Dashboard: React.FC = () => {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {isMaster && (
+        {(isMaster || userRole === 'ADMIN') && (
           <StatCard 
             title={t('dash.today_revenue')} 
             value={`₹${stats.today_revenue.total.toLocaleString()}`} 
@@ -179,19 +194,9 @@ export const Dashboard: React.FC = () => {
           trendUp={true} 
           onClick={() => navigate('/operations/trips')}
         />
-        {!isMaster && (
-           <StatCard 
-            title="Operational Health" 
-            value="98.2%" 
-            icon={Activity} 
-            trend="+0.5%" 
-            trendUp={true} 
-            onClick={() => navigate('/operations/alerts')}
-          />
-        )}
       </div>
 
-      {isMaster && (
+      {(isMaster || userRole === 'ADMIN') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Revenue Chart */}
           <div className="lg:col-span-2 bg-white p-8 border border-slate-200 shadow-sm">

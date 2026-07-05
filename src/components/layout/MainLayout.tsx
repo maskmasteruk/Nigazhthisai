@@ -57,15 +57,16 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
   }, []);
 
   const handleLogout = async () => {
+    localStorage.clear();
+    eraseCookie('sb-access-token');
+    eraseCookie('sb-refresh-token');
+
     try {
       await supabase.auth.signOut();
     } catch (e) {
       console.error('Error signing out from Supabase:', e);
     }
-    localStorage.removeItem('admin_token');
-    localStorage.removeItem('user_role');
-    eraseCookie('sb-access-token');
-    eraseCookie('sb-refresh-token');
+    
     navigate('/login');
   };
 
@@ -78,10 +79,8 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
     { id: 'stops', label: t('nav.stops'), icon: Navigation, path: '/operations/stops', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'ROUTES' },
     { id: 'buses', label: t('nav.buses'), icon: Bus, path: '/operations/buses', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'BUSES' },
     { id: 'trips', label: t('nav.trips'), icon: Navigation, path: '/operations/trips', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'TRIPS' },
-    { id: 'revenue', label: t('nav.revenue'), icon: Ticket, path: '/revenue', roles: ['MASTER_ADMIN'], feature: 'REVENUE' },
-    { id: 'users', label: t('nav.users'), icon: Users, path: '/users', roles: ['MASTER_ADMIN'] },
-    { id: 'settings', label: t('nav.settings'), icon: Settings, path: '/settings', roles: ['ADMIN'] },
-    { id: 'support', label: t('nav.support'), icon: HelpCircle, path: '/support', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'SUPPORT' },
+    { id: 'revenue', label: t('nav.revenue'), icon: Ticket, path: '/revenue', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'REVENUE' },
+    { id: 'users', label: t('nav.users'), icon: Users, path: '/users', roles: ['MASTER_ADMIN', 'ADMIN'] },
   ].filter(item => {
     const hasRole = item.roles.includes(userRole);
     const isEnabled = !item.feature || isFeatureEnabled(item.feature as any);

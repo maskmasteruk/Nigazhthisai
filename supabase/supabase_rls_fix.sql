@@ -5,11 +5,7 @@
 -- "infinite recursion detected in policy for relation profiles" error.
 
 -- 1. Drop existing policies to prevent conflicts
-drop policy if exists "Read own profile" on public.profiles;
-drop policy if exists "Admins read all profiles" on public.profiles;
-drop policy if exists "Update own profile" on public.profiles;
-drop policy if exists "Admins update any profile" on public.profiles;
-drop policy if exists "Admins delete profiles" on public.profiles;
+
 
 drop policy if exists "Allow read routes" on public.routes;
 drop policy if exists "Admins modify routes" on public.routes;
@@ -49,18 +45,7 @@ drop policy if exists "Admins manage stops" on public.stops;
 
 -- 2. Create optimized, non-recursive RLS policies using auth.jwt() metadata role verification
 
--- PROFILES
-create policy "Read own profile" on public.profiles for select using (auth.uid() = id);
-create policy "Admins read all profiles" on public.profiles for select using (
-  (auth.jwt() -> 'user_metadata' ->> 'role') in ('MASTER_ADMIN', 'ADMIN', 'OPERATIONS')
-);
-create policy "Update own profile" on public.profiles for update using (auth.uid() = id);
-create policy "Admins update any profile" on public.profiles for update using (
-  (auth.jwt() -> 'user_metadata' ->> 'role') in ('MASTER_ADMIN', 'ADMIN')
-);
-create policy "Admins delete profiles" on public.profiles for delete using (
-  (auth.jwt() -> 'user_metadata' ->> 'role') in ('MASTER_ADMIN', 'ADMIN')
-);
+
 
 -- ROUTES
 create policy "Allow read routes" on public.routes for select using (true);

@@ -36,20 +36,11 @@ export const adminApi = {
     if (authError) throw new Error(getErrorMessage(authError, 'Invalid email or password'));
     if (!authData.user) throw new Error('Authentication failed');
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('name, role, status')
-      .eq('id', authData.user.id)
-      .maybeSingle();
+    const name = authData.user.user_metadata?.name || authData.user.email?.split('@')[0] || 'User';
+    const role = authData.user.user_metadata?.role || 'PASSENGER';
+    const status = authData.user.user_metadata?.status || 'ACTIVE';
 
-    if (profileError) {
-      console.warn('Could not load signed-in user profile; using auth metadata instead.', profileError);
-    }
-
-    const name = profile?.name || authData.user.user_metadata?.name || authData.user.email?.split('@')[0] || 'User';
-    const role = profile?.role || authData.user.user_metadata?.role || 'PASSENGER';
-
-    if (profile?.status === 'INACTIVE' || authData.user.user_metadata?.status === 'INACTIVE') {
+    if (status === 'INACTIVE') {
       await supabase.auth.signOut();
       throw new Error('This account is inactive. Contact the system administrator.');
     }
@@ -317,6 +308,9 @@ export const adminApi = {
     const { data, error } = await supabase.rpc('rpc_add_bus', {
       bus_id: busData.id || `bus-${Math.floor(1000 + Math.random() * 9000)}`,
       reg_no: busData.reg_no || busData.registration_number,
+      model: busData.model || '',
+      type: busData.type || 'NON-AC',
+      etm_id: busData.etm_id || '',
       route_id: busData.route_id ? Number(busData.route_id) : null,
       capacity: Number(busData.capacity || 50),
       fare: Number(busData.fare || 15),
@@ -329,10 +323,15 @@ export const adminApi = {
   },
 
   addRoute: async (routeData: any) => {
+    const stopsValue = routeData.stops 
+      ? (Array.isArray(routeData.stops) ? routeData.stops : JSON.parse(routeData.stops))
+      : [];
     const { data, error } = await supabase.rpc('rpc_add_route', {
       code: routeData.code,
       name: routeData.name,
-      stops: Array.isArray(routeData.stops) ? routeData.stops : JSON.parse(routeData.stops)
+      district: routeData.district,
+      zone: routeData.zone,
+      stops: stopsValue
     });
     if (error) throw error;
     return data;
@@ -366,6 +365,9 @@ export const adminApi = {
     const { error } = await supabase.rpc('rpc_update_bus', {
       bus_id: id,
       reg_no: busData.reg_no || busData.registration_number,
+      model: busData.model || '',
+      type: busData.type || 'NON-AC',
+      etm_id: busData.etm_id || '',
       route_id: busData.route_id ? Number(busData.route_id) : null,
       capacity: Number(busData.capacity || 50),
       fare: Number(busData.fare || 15),
@@ -551,17 +553,55 @@ export const conductorApi = {
     const ticket = data && data.length > 0 ? data[0] : null;
 
     if (error || !ticket) {
-      return { valid: false, message: 'Invalid or Expired Ticket' };
+      return { valid: false, message: 'Invalid Ticket ID' };
     }
 
-    if ((ticket as any).status === 'CONFIRMED') {
+    const t = ticket as any;
+
+    // 1. Check if already cancelled
+    if (t.status === 'CANCELLED') {
+      return { valid: false, message: 'Ticket is Cancelled' };
+    }
+
+    // 2. Check if already boarded/used
+    if (t.status === 'BOARDED') {
+      return { valid: false, message: 'Ticket has already been Used / Boarded' };
+    }
+
+    // 3. Check if already expired
+    if (t.status === 'EXPIRED') {
+      return { valid: false, message: 'Ticket has Expired' };
+    }
+
+    // 4. Check 3 hours ticket validity duration
+    if (t.created_at) {
+      const ticketTime = new Date(t.created_at).getTime();
+      const currentTime = new Date().getTime();
+      const threeHoursInMs = 3 * 60 * 60 * 1000;
+      
+      if (currentTime - ticketTime > threeHoursInMs) {
+        // Update ticket status to EXPIRED in database
+        await supabase.rpc('rpc_update_ticket_status', { ticket_id: cleanTicketId, ticket_status: 'EXPIRED' });
+        return { valid: false, message: 'Ticket has Expired (Valid for 3 hours only)' };
+      }
+    }
+
+    // If valid, transition CONFIRMED -> BOARDED
+    if (t.status === 'CONFIRMED' || t.status === 'PENDING_PAYMENT') {
       await supabase.rpc('rpc_update_ticket_status', { ticket_id: cleanTicketId, ticket_status: 'BOARDED' });
     }
 
     return { 
       valid: true, 
-      message: 'Ticket Validated', 
-      passengerName: (ticket as any).passenger_name || 'Passenger'
+      message: 'Ticket Validated Successfully', 
+      passengerName: t.passenger_name || 'Passenger',
+      ticket: {
+        ticket_id: t.id,
+        passenger_name: t.passenger_name || 'Passenger',
+        origin: t.from_stop,
+        destination: t.to_stop,
+        seats: t.seats || 1
+      }
     };
   },
 

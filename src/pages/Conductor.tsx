@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { 
   Bus as BusIcon, 
   Navigation, 
@@ -33,6 +34,7 @@ import { toast } from 'sonner';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 import { conductorApi, adminApi } from '../lib/api';
+import { eraseCookie } from '../utils/cookies';
 
 // Real-world bus fleet for Nigazhthisai
 const BUS_FLEET = [
@@ -92,6 +94,25 @@ export const ConductorPage: React.FC = () => {
   const [scanPayload, setScanPayload] = useState('');
   const [scanResult, setScanResult] = useState<any | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [html5QrCode, setHtml5QrCode] = useState<Html5Qrcode | null>(null);
+
+  // Cleanup camera stream on unmount or view change
+  useEffect(() => {
+    return () => {
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().catch(console.error);
+      }
+    };
+  }, [html5QrCode]);
+
+  useEffect(() => {
+    if (currentView !== 'SCAN_QR' && html5QrCode && html5QrCode.isScanning) {
+      html5QrCode.stop().then(() => {
+        setIsCameraActive(false);
+      }).catch(console.error);
+    }
+  }, [currentView, html5QrCode]);
 
   // Language Picker dropdown state
   const [isLangOpen, setIsLangOpen] = useState(false);
@@ -419,26 +440,20 @@ export const ConductorPage: React.FC = () => {
   };
 
   // 4. Scan QR Code Action
-  const handleScanQR = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!scanPayload.trim()) {
-      toast.error('Please input a passenger ticket QR string or tap a simulator shortcut below');
-      return;
-    }
-
+  const handleScanQRDirect = async (payload: string) => {
     setScanLoading(true);
     try {
-      const response = await conductorApi.scanQR(0, scanPayload);
+      const response = await conductorApi.scanQR(0, payload);
       if (response.valid) {
         setScanResult({
           valid: true,
           ticket_info: {
-            ticket_id: scanPayload.includes(':') ? scanPayload.split(':').slice(1).join(':') : scanPayload,
-            origin: boardingStop || 'Boarding Stop',
-            destination: destinationStop || 'Destination Stop',
-            seats: 1,
+            ticket_id: response.ticket?.ticket_id || (payload.includes(':') ? payload.split(':').slice(1).join(':') : payload),
+            origin: response.ticket?.origin || boardingStop || 'Boarding Stop',
+            destination: response.ticket?.destination || destinationStop || 'Destination Stop',
+            seats: response.ticket?.seats || 1,
             status: 'BOARDED',
-            passenger_name: response.passengerName || 'Verified Passenger'
+            passenger_name: response.ticket?.passenger_name || response.passengerName || 'Verified Passenger'
           }
         });
         toast.success(response.message || 'Ticket Scanned & Validated!');
@@ -454,6 +469,63 @@ export const ConductorPage: React.FC = () => {
       toast.error(err.message || 'Verification scan failed.');
     } finally {
       setScanLoading(false);
+    }
+  };
+
+  const handleScanQR = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scanPayload.trim()) {
+      toast.error('Please input a passenger ticket QR string or tap a simulator shortcut below');
+      return;
+    }
+    await handleScanQRDirect(scanPayload);
+  };
+
+  const startCamera = async () => {
+    try {
+      setIsCameraActive(true);
+      // Wait for DOM to render the container
+      setTimeout(async () => {
+        try {
+          const scanner = new Html5Qrcode("reader");
+          setHtml5QrCode(scanner);
+          await scanner.start(
+            { facingMode: "environment" },
+            {
+              fps: 10,
+              qrbox: { width: 250, height: 250 }
+            },
+            (decodedText) => {
+              setScanPayload(decodedText);
+              toast.success("QR Code Decoded!");
+              scanner.stop().then(() => {
+                setIsCameraActive(false);
+              }).catch(console.error);
+              handleScanQRDirect(decodedText);
+            },
+            () => {
+              // Silent scan failure
+            }
+          );
+        } catch (err: any) {
+          toast.error("Failed to start camera device: " + err.message);
+          setIsCameraActive(false);
+        }
+      }, 100);
+    } catch (err: any) {
+      toast.error("Failed to initialize camera: " + err.message);
+      setIsCameraActive(false);
+    }
+  };
+
+  const stopCamera = async () => {
+    if (html5QrCode && html5QrCode.isScanning) {
+      try {
+        await html5QrCode.stop();
+        setIsCameraActive(false);
+      } catch (err) {
+        console.error("Error stopping camera", err);
+      }
     }
   };
 
@@ -481,17 +553,19 @@ export const ConductorPage: React.FC = () => {
   };
 
   // Complete Logout Action
-  const handleLogout = () => {
+  const handleLogout = async () => {
     const confirmLogout = (window as any).bypassConfirm || window.confirm('Log out from Conductor Terminal? All active duty data will be cleared.');
     if (!confirmLogout) return;
 
-    localStorage.removeItem('conductor_jwt');
-    localStorage.removeItem('conductor_bus_id');
-    localStorage.removeItem('conductor_route_name');
-    localStorage.removeItem('conductor_number_plate');
-    localStorage.removeItem('conductor_trip_id');
-    localStorage.removeItem('conductor_id');
-    localStorage.removeItem('conductor_tickets_list');
+    localStorage.clear();
+    eraseCookie('sb-access-token');
+    eraseCookie('sb-refresh-token');
+
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Error signing out from Supabase:', e);
+    }
 
     setJwt(null);
     setActiveBusId(null);
@@ -1258,22 +1332,45 @@ export const ConductorPage: React.FC = () => {
 
               {/* CAMERA VIEWFINDER OVERLAY */}
               <div className="relative w-full aspect-square bg-slate-950 flex flex-col items-center justify-center overflow-hidden border border-slate-800 rounded-3xl shadow-inner">
+                {/* HTML5 QR Reader viewport */}
+                <div id="reader" className="w-full h-full absolute inset-0 overflow-hidden" />
+
                 {/* Viewfinder brackets */}
-                <div className="absolute top-8 left-8 w-12 h-12 border-t-4 border-l-4 border-[#D97F00] rounded-tl-xl" />
-                <div className="absolute top-8 right-8 w-12 h-12 border-t-4 border-r-4 border-[#D97F00] rounded-tr-xl" />
-                <div className="absolute bottom-8 left-8 w-12 h-12 border-b-4 border-l-4 border-[#D97F00] rounded-bl-xl" />
-                <div className="absolute bottom-8 right-8 w-12 h-12 border-b-4 border-r-4 border-[#D97F00] rounded-br-xl" />
+                <div className="absolute top-8 left-8 w-12 h-12 border-t-4 border-l-4 border-[#D97F00] rounded-tl-xl z-20 pointer-events-none" />
+                <div className="absolute top-8 right-8 w-12 h-12 border-t-4 border-r-4 border-[#D97F00] rounded-tr-xl z-20 pointer-events-none" />
+                <div className="absolute bottom-8 left-8 w-12 h-12 border-b-4 border-l-4 border-[#D97F00] rounded-bl-xl z-20 pointer-events-none" />
+                <div className="absolute bottom-8 right-8 w-12 h-12 border-b-4 border-r-4 border-[#D97F00] rounded-br-xl z-20 pointer-events-none" />
 
                 {/* Laser scan line anim */}
-                <div className="absolute left-0 right-0 h-0.5 bg-orange-400 shadow-[0_0_12px_rgba(217,127,0,0.8)] top-1/4 animate-[bounce_2s_infinite]" />
+                {isCameraActive && (
+                  <div className="absolute left-0 right-0 h-0.5 bg-orange-400 shadow-[0_0_12px_rgba(217,127,0,0.8)] top-1/4 animate-[bounce_2s_infinite] z-20 pointer-events-none" />
+                )}
 
-                <div className="text-center p-6 space-y-2 z-10 bg-slate-950/80 backdrop-blur-xs max-w-xs border border-slate-800 rounded-2xl">
-                  <QrCode size={40} className="mx-auto text-[#D97F00] animate-pulse" />
-                  <p className="text-sm font-black text-white uppercase tracking-tight">Camera Feed Simulator</p>
-                  <p className="text-[10px] text-slate-400 font-extrabold leading-relaxed uppercase">
-                    In actual operation, ETM camera or infrared laser scan module handles instantaneous reads.
-                  </p>
-                </div>
+                {!isCameraActive && (
+                  <div className="text-center p-6 space-y-2 z-10 bg-slate-950/80 backdrop-blur-xs max-w-xs border border-slate-800 rounded-2xl">
+                    <QrCode size={40} className="mx-auto text-[#D97F00] animate-pulse" />
+                    <p className="text-sm font-black text-white uppercase tracking-tight">Camera Feed Inactive</p>
+                    <p className="text-[10px] text-slate-400 font-extrabold leading-relaxed uppercase">
+                      Tap the button below to enable camera scanning.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* CAMERA CONTROL BUTTON */}
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={isCameraActive ? stopCamera : startCamera}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
+                    isCameraActive 
+                      ? 'bg-rose-500 hover:bg-rose-600 text-white shadow-md' 
+                      : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md'
+                  }`}
+                >
+                  <QrCode size={16} />
+                  {isCameraActive ? 'Disable Camera' : 'Enable Camera Scanner'}
+                </button>
               </div>
 
               {/* INPUT FORM FOR PAYLOAD */}
