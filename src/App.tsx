@@ -5,15 +5,20 @@ import { MainLayout } from './components/layout/MainLayout';
 import { LoginPage } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { RoutesList } from './pages/operations/RoutesList';
+import { StopsList } from './pages/operations/StopsList';
 import { BusesList } from './pages/operations/BusesList';
 import { TripsList } from './pages/operations/TripsList';
 import { OperationalAlerts } from './pages/operations/OperationalAlerts';
-import { OperationalPipeline } from './pages/operations/OperationalPipeline';
+import { OperationalRouteCreate } from './pages/operations/OperationalRouteCreate';
+import { OperationalStopsManage } from './pages/operations/OperationalStopsManage';
+import { OperationalTripSchedule } from './pages/operations/OperationalTripSchedule';
+import { OperationalDone } from './pages/operations/OperationalDone';
 import { LiveMonitoring } from './pages/LiveMonitoring';
 import { Revenue } from './pages/Revenue';
 import { Users } from './pages/Users';
 import { ConductorPage } from './pages/Conductor';
 import { PassengerPage } from './pages/Passenger';
+import { DriverPage } from './pages/Driver';
 import { 
   Settings, 
   Support 
@@ -23,20 +28,27 @@ import { LanguageProvider } from './lib/i18n';
 import { isFeatureEnabled } from './lib/featureFlags';
 import { supabase } from './lib/supabase';
 import { Loader2 } from 'lucide-react';
+import { getCookie, setCookie, eraseCookie } from './utils/cookies';
 
 // Protected Route Component
 const ProtectedRoute: React.FC<{ 
   children: React.ReactNode; 
   useLayout?: boolean;
   feature?: any;
-}> = ({ children, useLayout = true, feature }) => {
+  allowedRoles?: string[];
+}> = ({ children, useLayout = true, feature, allowedRoles }) => {
   const token = localStorage.getItem('admin_token');
+  const role = localStorage.getItem('user_role') || 'ADMIN';
 
   if (!token) {
     return <Navigate to="/login" replace />;
   }
 
   if (feature && !isFeatureEnabled(feature)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(role)) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -49,12 +61,21 @@ const App: React.FC = () => {
   useEffect(() => {
     const initAuth = async () => {
       try {
+        const accessToken = getCookie('sb-access-token');
+        const refreshToken = getCookie('sb-refresh-token');
+        if (accessToken && refreshToken) {
+          // Reauthenticate the session from the secure cookies
+          await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+        }
+
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          const { data: profile } = await supabase.rpc('rpc_get_profile_by_id', { user_uuid: session.user.id });
-          if (profile) {
-            localStorage.setItem('user_role', (profile as any).role);
-          }
+          localStorage.setItem('admin_token', session.access_token);
+          const role = session.user.user_metadata?.role || 'PASSENGER';
+          localStorage.setItem('user_role', role);
         }
       } catch (err) {
         console.error('Error fetching session:', err);
@@ -68,13 +89,22 @@ const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session) {
         localStorage.setItem('admin_token', session.access_token);
-        const { data: profile } = await supabase.rpc('rpc_get_profile_by_id', { user_uuid: session.user.id });
-        if (profile) {
-          localStorage.setItem('user_role', (profile as any).role);
+        
+        // Save access & refresh tokens in secure cookies
+        setCookie('sb-access-token', session.access_token, session.expires_in || 3600);
+        if (session.refresh_token) {
+          setCookie('sb-refresh-token', session.refresh_token, 604800); // 7 days
         }
-      } else {
+        
+        const role = session.user.user_metadata?.role || 'PASSENGER';
+        localStorage.setItem('user_role', role);
+      } else if (event === 'SIGNED_OUT') {
         localStorage.removeItem('admin_token');
         localStorage.removeItem('user_role');
+        
+        // Remove cookies on logout
+        eraseCookie('sb-access-token');
+        eraseCookie('sb-refresh-token');
       }
     });
 
@@ -115,6 +145,12 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } />
 
+          <Route path="/operations/stops" element={
+            <ProtectedRoute feature="ROUTES">
+              <StopsList />
+            </ProtectedRoute>
+          } />
+
           <Route path="/operations/buses" element={
             <ProtectedRoute feature="BUSES">
               <BusesList />
@@ -133,9 +169,29 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } />
 
-          <Route path="/operations/setup" element={
+          <Route path="/operations/setup" element={<Navigate to="/operations/setup/route" replace />} />
+
+          <Route path="/operations/setup/route" element={
             <ProtectedRoute>
-              <OperationalPipeline />
+              <OperationalRouteCreate />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/operations/setup/stops" element={
+            <ProtectedRoute>
+              <OperationalStopsManage />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/operations/setup/schedule" element={
+            <ProtectedRoute>
+              <OperationalTripSchedule />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/operations/setup/done" element={
+            <ProtectedRoute>
+              <OperationalDone />
             </ProtectedRoute>
           } />
 
@@ -158,7 +214,7 @@ const App: React.FC = () => {
           } />
 
           <Route path="/settings" element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={['ADMIN']}>
               <Settings />
             </ProtectedRoute>
           } />
@@ -178,6 +234,12 @@ const App: React.FC = () => {
           <Route path="/passenger" element={
             <ProtectedRoute useLayout={false}>
               <PassengerPage />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/driver" element={
+            <ProtectedRoute useLayout={false}>
+              <DriverPage />
             </ProtectedRoute>
           } />
 

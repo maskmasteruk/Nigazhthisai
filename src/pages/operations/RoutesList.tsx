@@ -179,195 +179,277 @@ export const RoutesList: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div className="flex flex-1 items-center gap-4">
-          <div className="relative flex-1 max-w-md group">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
-              <Search size={18} />
+      {/* Header Title */}
+      <div className="border-b border-slate-200 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-black uppercase tracking-tight text-slate-900">Create & Manage Routes</h1>
+          <p className="text-sm text-slate-500 font-semibold mt-1">Configure transit pathways and view the active routes registry.</p>
+        </div>
+        <button 
+          onClick={() => navigate('/operations/setup/route')}
+          className="px-8 py-4 bg-primary text-white font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-xl shadow-primary/20 hover:bg-primary-light transition-all active:scale-95 self-start md:self-auto"
+        >
+          <Plus size={16} />
+          Start Setup Wizard
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        {/* Left Side: Create Route Form */}
+        <div className="bg-white border-4 border-slate-900 shadow-[8px_8px_0px_0px_rgba(15,23,42,1)] p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 bg-primary flex items-center justify-center text-white">
+              <Plus size={20} />
             </div>
-            <input 
-              type="text" 
-              placeholder="Search routes..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 focus:border-primary focus:ring-4 focus:ring-primary/5 outline-none transition-all font-medium text-slate-900"
-            />
+            <div>
+              <h2 className="text-lg font-black uppercase tracking-tight text-slate-900">Create Route</h2>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Define parameters</p>
+            </div>
           </div>
 
-          {isMaster && (
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
-                  <Filter size={18} />
-                </div>
+          <form onSubmit={handleCreateRoute} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Route Name</label>
+              <input 
+                type="text" 
+                placeholder="e.g. Tiruppur - Avinashi"
+                value={newRoute.name}
+                onChange={(e) => setNewRoute({ ...newRoute, name: e.target.value })}
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Route Code</label>
+              <input 
+                type="text" 
+                placeholder="e.g. TUP-AVI"
+                value={newRoute.code}
+                onChange={(e) => setNewRoute({ ...newRoute, code: e.target.value.toUpperCase() })}
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg uppercase"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">District</label>
+              <select 
+                value={newRoute.district}
+                onChange={(e) => setNewRoute({ ...newRoute, district: e.target.value })}
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg appearance-none cursor-pointer"
+              >
+                {DISTRICTS.filter(d => d !== 'All').map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Zone</label>
+              <select 
+                value={newRoute.zone}
+                onChange={(e) => setNewRoute({ ...newRoute, zone: e.target.value })}
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg appearance-none cursor-pointer"
+              >
+                {ZONES.filter(z => z !== 'All').map(z => (
+                  <option key={z} value={z}>{z}</option>
+                ))}
+              </select>
+            </div>
+
+            <button 
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-[0.25em] shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="animate-spin" size={16} />
+                  Creating Route...
+                </>
+              ) : (
+                <>
+                  <Plus size={16} />
+                  Create Route
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Right Side: Available Routes List */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Search & Filter */}
+          <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-white border border-slate-200 p-4 shadow-sm">
+            <div className="relative flex-1 w-full group">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
+                <Search size={18} />
+              </div>
+              <input 
+                type="text" 
+                placeholder="Search routes..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-medium text-slate-900 text-sm"
+              />
+            </div>
+
+            {isMaster && (
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <select 
                   value={selectedDistrict}
                   onChange={(e) => setSelectedDistrict(e.target.value)}
-                  className="pl-12 pr-10 py-4 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-widest text-slate-700 appearance-none cursor-pointer"
+                  className="px-3 py-2.5 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-wider text-slate-700 cursor-pointer w-1/2 sm:w-auto"
                 >
                   {DISTRICTS.map(d => (
-                    <option key={d} value={d}>{d} DISTRICT</option>
+                    <option key={d} value={d}>{d === 'All' ? 'ALL DISTRICTS' : `${d.toUpperCase()} DISTRICT`}</option>
                   ))}
                 </select>
-              </div>
 
-              <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
-                  <Filter size={18} />
-                </div>
                 <select 
                   value={selectedZone}
                   onChange={(e) => setSelectedZone(e.target.value)}
-                  className="pl-12 pr-10 py-4 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-widest text-slate-700 appearance-none cursor-pointer"
+                  className="px-3 py-2.5 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-wider text-slate-700 cursor-pointer w-1/2 sm:w-auto"
                 >
                   {ZONES.map(z => (
-                    <option key={z} value={z}>{z} ZONE</option>
+                    <option key={z} value={z}>{z === 'All' ? 'ALL ZONES' : `${z.toUpperCase()} ZONE`}</option>
                   ))}
                 </select>
               </div>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate('/operations/setup')}
-            className="px-8 py-4 bg-primary text-white font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-xl shadow-primary/20 hover:bg-primary-light transition-all active:scale-95"
-          >
-            <Plus size={16} />
-            Start Setup Wizard
-          </button>
-        </div>
-      </div>
+            )}
+          </div>
 
-      {/* Routes Table */}
-      <div className="bg-white border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Route ID</th>
-                <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Route Name</th>
-                <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Code</th>
-                <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Dynamic Schedule</th>
-                <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Status</th>
-                <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="px-8 py-20 text-center">
-                    <Loader2 size={32} className="animate-spin text-primary mx-auto mb-4" />
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Loading Routes...</p>
-                  </td>
-                </tr>
-              ) : filteredRoutes.length > 0 ? filteredRoutes.map((route) => (
-                <tr key={route.id} className="hover:bg-slate-50 transition-all group">
-                  <td className="px-8 py-6">
-                    <span className="text-base font-black text-slate-400 uppercase tracking-widest">#{route.id}</span>
-                  </td>
-                  <td className="px-8 py-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-primary group-hover:text-white transition-all">
-                        <MapPin size={18} />
-                      </div>
-                      <div>
-                        <p className="text-base font-bold text-slate-900">{route.name}</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-                          {route.day_schedules?.[currentDay] ? (
-                            <span className="text-primary">Custom route active for {currentDay}</span>
-                          ) : (
-                            <span>Standard route active</span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-8 py-6">
-                    <span className="px-3 py-1 bg-slate-100 text-slate-600 text-sm font-black uppercase tracking-widest">
-                      {route.code}
-                    </span>
-                  </td>
-                  <td className="px-8 py-6">
-                    <button 
-                      onClick={() => handleOpenSchedule(route)}
-                      className="flex items-center gap-3 group/sched transition-all"
-                    >
-                      <div className="flex -space-x-2">
-                        {DAYS_OF_WEEK.map((day) => (
-                          <div 
-                            key={day}
-                            className={`w-5 h-5 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-black ${
-                              route.day_schedules?.[day] ? 'bg-amber-400 text-white' : 'bg-slate-100 text-slate-400'
-                            }`}
-                            title={day}
-                          >
-                            {day[0]}
+          {/* Routes Table */}
+          <div className="bg-white border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Route ID</th>
+                    <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Route Name</th>
+                    <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Code</th>
+                    <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Dynamic Schedule</th>
+                    <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest">Status</th>
+                    <th className="px-8 py-5 text-sm font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={6} className="px-8 py-20 text-center">
+                        <Loader2 size={32} className="animate-spin text-primary mx-auto mb-4" />
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Loading Routes...</p>
+                      </td>
+                    </tr>
+                  ) : filteredRoutes.length > 0 ? filteredRoutes.map((route) => (
+                    <tr key={route.id} className="hover:bg-slate-50 transition-all group">
+                      <td className="px-8 py-6">
+                        <span className="text-base font-black text-slate-400 uppercase tracking-widest">#{route.id}</span>
+                      </td>
+                      <td className="px-8 py-6">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-primary group-hover:text-white transition-all">
+                            <MapPin size={18} />
                           </div>
-                        ))}
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover/sched:text-primary transition-colors">
-                        View Schedule
-                      </span>
-                    </button>
-                  </td>
-                  <td className="px-8 py-6">
-                    <span className={`px-3 py-1 text-sm font-black uppercase tracking-widest ${
-                      route.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
-                    }`}>
-                      {route.status}
-                    </span>
-                  </td>
-                  <td className="px-8 py-6 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button 
-                        onClick={() => navigate(`/operations/trips?search=${route.name}`)}
-                        className="p-2 hover:bg-white hover:shadow-sm text-slate-400 hover:text-primary transition-all"
-                        title="Schedule Trips"
-                      >
-                        <Clock3 size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleOpenSchedule(route)}
-                        className="p-2 hover:bg-white hover:shadow-sm text-slate-400 hover:text-primary transition-all"
-                        title="Manage Daily Schedule"
-                      >
-                        <Calendar size={16} />
-                      </button>
-                      <button className="p-2 hover:bg-white hover:shadow-sm text-slate-400 hover:text-primary transition-all">
-                        <Edit2 size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteRoute(route.id)}
-                        className="p-2 hover:bg-white hover:shadow-sm text-slate-400 hover:text-rose-500 transition-all"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td colSpan={6} className="px-8 py-20 text-center">
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No routes found matching your search</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        
-        {/* Pagination */}
-        <div className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-          <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Showing 1 to {filteredRoutes.length} of {routes.length} routes</p>
-          <div className="flex items-center gap-2">
-            <button className="p-2 border border-slate-200 bg-white text-slate-400 hover:text-primary transition-all disabled:opacity-50" disabled>
-              <ChevronRight size={16} className="rotate-180" />
-            </button>
-            <button className="p-2 border border-slate-200 bg-white text-slate-400 hover:text-primary transition-all disabled:opacity-50" disabled>
-              <ChevronRight size={16} />
-            </button>
+                          <div>
+                            <p className="text-base font-bold text-slate-900">{route.name}</p>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                              {route.day_schedules?.[currentDay] ? (
+                                <span className="text-primary">Custom route active for {currentDay}</span>
+                              ) : (
+                                <span>Standard route active</span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <span className="px-3 py-1 bg-slate-100 text-slate-600 text-sm font-black uppercase tracking-widest">
+                          {route.code}
+                        </span>
+                      </td>
+                      <td className="px-8 py-6">
+                        <button 
+                          onClick={() => handleOpenSchedule(route)}
+                          className="flex items-center gap-3 group/sched transition-all"
+                        >
+                          <div className="flex -space-x-2">
+                            {DAYS_OF_WEEK.map((day) => (
+                              <div 
+                                key={day}
+                                className={`w-5 h-5 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-black ${
+                                  route.day_schedules?.[day] ? 'bg-amber-400 text-white' : 'bg-slate-100 text-slate-400'
+                                }`}
+                                title={day}
+                              >
+                                {day[0]}
+                              </div>
+                            ))}
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover/sched:text-primary transition-colors">
+                            View Schedule
+                          </span>
+                        </button>
+                      </td>
+                      <td className="px-8 py-6">
+                        <span className={`px-3 py-1 text-sm font-black uppercase tracking-widest ${
+                          route.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
+                        }`}>
+                          {route.status}
+                        </span>
+                      </td>
+                      <td className="px-8 py-6 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => navigate(`/operations/trips?search=${route.name}`)}
+                            className="p-2 hover:bg-white hover:shadow-sm text-slate-400 hover:text-primary transition-all"
+                            title="Schedule Trips"
+                          >
+                            <Clock3 size={16} />
+                          </button>
+                          <button 
+                            onClick={() => handleOpenSchedule(route)}
+                            className="p-2 hover:bg-white hover:shadow-sm text-slate-400 hover:text-primary transition-all"
+                            title="Manage Daily Schedule"
+                          >
+                            <Calendar size={16} />
+                          </button>
+                          <button className="p-2 hover:bg-white hover:shadow-sm text-slate-400 hover:text-primary transition-all">
+                            <Edit2 size={16} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteRoute(route.id)}
+                            className="p-2 hover:bg-white hover:shadow-sm text-slate-400 hover:text-rose-500 transition-all"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={6} className="px-8 py-20 text-center">
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No routes found matching your search</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Pagination */}
+            <div className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Showing 1 to {filteredRoutes.length} of {routes.length} routes</p>
+              <div className="flex items-center gap-2">
+                <button className="p-2 border border-slate-200 bg-white text-slate-400 hover:text-primary transition-all disabled:opacity-50" disabled>
+                  <ChevronRight size={16} className="rotate-180" />
+                </button>
+                <button className="p-2 border border-slate-200 bg-white text-slate-400 hover:text-primary transition-all disabled:opacity-50" disabled>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -539,128 +621,6 @@ export const RoutesList: React.FC = () => {
                   </button>
                 </div>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Create Route Modal */}
-      <AnimatePresence>
-        {isModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsModalOpen(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-2xl bg-white shadow-2xl p-12"
-            >
-              <div className="flex items-center justify-between mb-12">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-primary flex items-center justify-center text-white shadow-xl shadow-primary/20">
-                    <Plus size={24} />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Create New Route</h2>
-                    <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mt-1">Define route parameters and stops</p>
-                  </div>
-                </div>
-                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 transition-all text-slate-400">
-                  <X size={20} />
-                </button>
-              </div>
-
-              <form onSubmit={handleCreateRoute} className="space-y-8">
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Route Name</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. Tiruppur - Avinashi"
-                      value={newRoute.name}
-                      onChange={(e) => setNewRoute({ ...newRoute, name: e.target.value })}
-                      className="w-full px-4 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white outline-none transition-all font-medium text-slate-900"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Route Code</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. TUP-AVI"
-                      value={newRoute.code}
-                      onChange={(e) => setNewRoute({ ...newRoute, code: e.target.value })}
-                      className="w-full px-4 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white outline-none transition-all font-medium text-slate-900"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">District</label>
-                    <select 
-                      value={newRoute.district}
-                      onChange={(e) => setNewRoute({ ...newRoute, district: e.target.value })}
-                      className="w-full px-4 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white outline-none transition-all font-medium text-slate-900 appearance-none cursor-pointer"
-                    >
-                      {DISTRICTS.filter(d => d !== 'All').map(d => (
-                        <option key={d} value={d}>{d}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Zone</label>
-                    <select 
-                      value={newRoute.zone}
-                      onChange={(e) => setNewRoute({ ...newRoute, zone: e.target.value })}
-                      className="w-full px-4 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white outline-none transition-all font-medium text-slate-900 appearance-none cursor-pointer"
-                    >
-                      {ZONES.filter(z => z !== 'All').map(z => (
-                        <option key={z} value={z}>{z}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="p-8 bg-slate-50 border border-dashed border-slate-200 text-center space-y-4">
-                  <div className="w-12 h-12 bg-white border border-slate-200 flex items-center justify-center mx-auto text-slate-400">
-                    <MapPin size={24} />
-                  </div>
-                  <p className="text-xs font-bold text-slate-500">Stops will be added in the next step after route creation</p>
-                </div>
-
-                <div className="flex items-center gap-4 pt-4">
-                  <button 
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="flex-1 py-5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-[0.3em] transition-all active:scale-[0.98]"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="flex-[2] py-5 bg-primary hover:bg-primary-light text-white font-black text-xs uppercase tracking-[0.3em] shadow-xl shadow-primary/20 transition-all active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="animate-spin" size={18} />
-                        Creating...
-                      </>
-                    ) : (
-                      <>
-                        Create Route
-                        <ArrowRight size={18} />
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
             </motion.div>
           </div>
         )}

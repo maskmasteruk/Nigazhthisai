@@ -25,6 +25,17 @@ export const BusesList: React.FC = () => {
   const [selectedDistrict, setSelectedDistrict] = useState('All');
   const [selectedZone, setSelectedZone] = useState('All');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingBus, setEditingBus] = useState<any | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    reg_no: '',
+    model: '',
+    type: 'NON-AC',
+    etm_id: '',
+    district: '',
+    zone: '',
+    status: 'ACTIVE'
+  });
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const userRole = localStorage.getItem('user_role') || 'ADMIN';
   const isMaster = userRole === 'MASTER_ADMIN';
 
@@ -77,7 +88,41 @@ export const BusesList: React.FC = () => {
     }
   };
 
-  const handleDeleteBus = async (id: number) => {
+  const handleEditClick = (bus: any) => {
+    setEditingBus(bus);
+    setEditFormData({
+      reg_no: bus.reg_no || '',
+      model: bus.model || '',
+      type: bus.type || 'NON-AC',
+      etm_id: bus.etm_id || '',
+      district: bus.district || '',
+      zone: bus.zone || '',
+      status: bus.status || 'ACTIVE'
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editFormData.reg_no || !editFormData.model || !editFormData.etm_id || !editFormData.district || !editFormData.zone) {
+      toast.error('Please fill all mandatory fields');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await adminApi.updateBus(editingBus.id, editFormData);
+      toast.success('Bus updated successfully');
+      setIsEditModalOpen(false);
+      fetchBuses();
+    } catch (error) {
+      toast.error('Failed to update bus');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteBus = async (id: any) => {
     if (!window.confirm('Are you sure you want to delete this bus?')) return;
     
     try {
@@ -147,7 +192,7 @@ export const BusesList: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button 
-            onClick={() => navigate('/operations/setup')}
+            onClick={() => setIsAddModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-white hover:bg-primary/90 transition-all font-bold text-xs uppercase tracking-widest"
           >
             <Plus size={16} />
@@ -235,12 +280,17 @@ export const BusesList: React.FC = () => {
                         >
                           <Eye size={16} />
                         </button>
-                        <button className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all">
+                        <button 
+                          onClick={() => handleEditClick(bus)}
+                          className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all"
+                          title="Edit Bus"
+                        >
                           <Edit2 size={16} />
                         </button>
                         <button 
                           onClick={() => handleDeleteBus(bus.id)}
                           className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-all"
+                          title="Delete Bus"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -253,6 +303,250 @@ export const BusesList: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Add Bus Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden rounded-sm animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <BusIcon className="text-primary" size={20} />
+                <h3 className="text-sm font-black text-slate-950 uppercase tracking-widest">Setup New Bus</h3>
+              </div>
+              <button 
+                onClick={() => setIsAddModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 transition-all p-1 hover:bg-slate-200 rounded"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddBus} className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Registration Number</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. TN 39 AB 1234"
+                  value={newBus.reg_no}
+                  onChange={(e) => setNewBus({ ...newBus, reg_no: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm rounded-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Model Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Leyland Viking"
+                  value={newBus.model}
+                  onChange={(e) => setNewBus({ ...newBus, model: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm rounded-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Bus Type</label>
+                <select
+                  value={newBus.type}
+                  onChange={(e) => setNewBus({ ...newBus, type: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
+                >
+                  <option value="AC">AC</option>
+                  <option value="NON-AC">NON-AC</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">ETM Device ID</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. ETM-5001"
+                  value={newBus.etm_id}
+                  onChange={(e) => setNewBus({ ...newBus, etm_id: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm rounded-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">District</label>
+                  <select
+                    value={newBus.district}
+                    onChange={(e) => setNewBus({ ...newBus, district: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
+                  >
+                    <option value="">Select District</option>
+                    {DISTRICTS.filter(d => d !== 'All').map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Zone</label>
+                  <select
+                    value={newBus.zone}
+                    onChange={(e) => setNewBus({ ...newBus, zone: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
+                  >
+                    <option value="">Select Zone</option>
+                    {ZONES.filter(z => z !== 'All').map(z => (
+                      <option key={z} value={z}>{z}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all font-bold text-xs uppercase tracking-widest rounded-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex items-center gap-2 px-5 py-2 bg-primary text-white hover:bg-primary/95 transition-all font-bold text-xs uppercase tracking-widest active:scale-95 disabled:opacity-75 disabled:pointer-events-none rounded-sm"
+                >
+                  {submitting ? 'Saving...' : 'Add Bus'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Bus Modal */}
+      {isEditModalOpen && editingBus && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden rounded-sm animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <BusIcon className="text-primary" size={20} />
+                <h3 className="text-sm font-black text-slate-950 uppercase tracking-widest">Edit Bus Details</h3>
+              </div>
+              <button 
+                onClick={() => setIsEditModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 transition-all p-1 hover:bg-slate-200 rounded"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Registration Number</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.reg_no}
+                  onChange={(e) => setEditFormData({ ...editFormData, reg_no: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm rounded-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Model Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.model}
+                  onChange={(e) => setEditFormData({ ...editFormData, model: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm rounded-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Bus Type</label>
+                <select
+                  value={editFormData.type}
+                  onChange={(e) => setEditFormData({ ...editFormData, type: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
+                >
+                  <option value="AC">AC</option>
+                  <option value="NON-AC">NON-AC</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">ETM Device ID</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.etm_id}
+                  onChange={(e) => setEditFormData({ ...editFormData, etm_id: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm rounded-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">District</label>
+                  <select
+                    value={editFormData.district}
+                    onChange={(e) => setEditFormData({ ...editFormData, district: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
+                  >
+                    <option value="">Select District</option>
+                    {DISTRICTS.filter(d => d !== 'All').map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Zone</label>
+                  <select
+                    value={editFormData.zone}
+                    onChange={(e) => setEditFormData({ ...editFormData, zone: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
+                  >
+                    <option value="">Select Zone</option>
+                    {ZONES.filter(z => z !== 'All').map(z => (
+                      <option key={z} value={z}>{z}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Bus Status</label>
+                <select
+                  value={editFormData.status}
+                  onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
+                >
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="MAINTENANCE">MAINTENANCE</option>
+                  <option value="STOPPED">STOPPED</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all font-bold text-xs uppercase tracking-widest rounded-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex items-center gap-2 px-5 py-2 bg-primary text-white hover:bg-primary/95 transition-all font-bold text-xs uppercase tracking-widest active:scale-95 disabled:opacity-75 disabled:pointer-events-none rounded-sm"
+                >
+                  {submitting ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

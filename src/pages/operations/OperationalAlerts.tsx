@@ -26,7 +26,7 @@ export const OperationalAlerts: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [stats, setStats] = useState<any>(null);
-  const [liveTrips, setLiveTrips] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'HISTORY'>('ACTIVE');
   const currentDay = getCurrentDayName();
@@ -39,16 +39,14 @@ export const OperationalAlerts: React.FC = () => {
   const DISTRICTS = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur', 'Trichy', 'Erode'];
   const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
 
-  const [acknowledgedAlerts, setAcknowledgedAlerts] = useState<string[]>([]);
-
   const fetchData = async () => {
     try {
-      const [statsData, liveData] = await Promise.all([
+      const [statsData, alertsData] = await Promise.all([
         adminApi.getDashboardStats({ district: selectedDistrict, zone: selectedZone }),
-        adminApi.getLiveTrips()
+        adminApi.getAlerts()
       ]);
       setStats(statsData);
-      setLiveTrips(liveData);
+      setAlerts(alertsData);
     } catch (error) {
       toast.error('Failed to update alert data');
     } finally {
@@ -65,19 +63,25 @@ export const OperationalAlerts: React.FC = () => {
   const handleAcknowledge = async (id: string) => {
     try {
       await adminApi.acknowledgeAlert(id);
-      setAcknowledgedAlerts(prev => [...prev, id]);
       toast.success('Alert acknowledged and team notified');
+      fetchData();
     } catch (error) {
       toast.error('Failed to acknowledge alert');
     }
   };
 
-  const idleBuses = liveTrips.filter(t => {
-    const isStationary = t.is_idle && t.idle_minutes >= 20;
-    const isNotAcked = !acknowledgedAlerts.includes(t.id);
-    const matchesDistrict = selectedDistrict === 'All' || t.district === selectedDistrict;
-    const matchesZone = selectedZone === 'All' || t.zone === selectedZone;
-    return isStationary && matchesDistrict && matchesZone && (activeTab === 'ACTIVE' ? isNotAcked : !isNotAcked);
+  const activeAlerts = alerts.filter(alert => {
+    const isPending = alert.status === 'PENDING';
+    const matchesDistrict = selectedDistrict === 'All' || alert.buses?.district === selectedDistrict;
+    const matchesZone = selectedZone === 'All' || alert.buses?.zone === selectedZone;
+    return isPending && matchesDistrict && matchesZone;
+  });
+
+  const historyAlerts = alerts.filter(alert => {
+    const isAcked = alert.status === 'ACKNOWLEDGED';
+    const matchesDistrict = selectedDistrict === 'All' || alert.buses?.district === selectedDistrict;
+    const matchesZone = selectedZone === 'All' || alert.buses?.zone === selectedZone;
+    return isAcked && matchesDistrict && matchesZone;
   });
 
   return (
@@ -118,11 +122,11 @@ export const OperationalAlerts: React.FC = () => {
             </div>
             <div>
               <p className="text-sm font-black text-slate-400 uppercase tracking-widest">{t('alerts.active_idle')}</p>
-              <p className="text-3xl font-black text-slate-900">{idleBuses.length}</p>
+              <p className="text-3xl font-black text-slate-900">{activeAlerts.length}</p>
             </div>
           </div>
           <div className="h-1 bg-rose-100 overflow-hidden">
-            <div className="h-full bg-rose-600 transition-all duration-1000" style={{ width: `${(idleBuses.length / 10) * 100}%` }} />
+            <div className="h-full bg-rose-600 transition-all duration-1000" style={{ width: `${(activeAlerts.length / 10) * 100}%` }} />
           </div>
         </div>
 
@@ -133,7 +137,7 @@ export const OperationalAlerts: React.FC = () => {
             </div>
             <div>
               <p className="text-sm font-black text-slate-400 uppercase tracking-widest">{t('alerts.resolved_today')}</p>
-              <p className="text-3xl font-black text-slate-900">12</p>
+              <p className="text-3xl font-black text-slate-900">{historyAlerts.length}</p>
             </div>
           </div>
           <div className="h-1 bg-emerald-100 overflow-hidden">
@@ -186,9 +190,9 @@ export const OperationalAlerts: React.FC = () => {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                {idleBuses.length > 0 ? (
-                  idleBuses.map((bus) => (
-                    <div key={bus.id} className="border border-rose-200 bg-rose-50/10 hover:shadow-xl hover:shadow-rose-500/5 transition-all p-6 group">
+                {activeAlerts.length > 0 ? (
+                  activeAlerts.map((alert) => (
+                    <div key={alert.id} className="border border-rose-200 bg-rose-50/10 hover:shadow-xl hover:shadow-rose-500/5 transition-all p-6 group">
                       <div className="flex flex-col lg:flex-row gap-8">
                         {/* Map Preview Placeholder */}
                         <div className="w-full lg:w-72 h-44 bg-slate-100 border border-slate-200 relative overflow-hidden shrink-0">
@@ -198,35 +202,35 @@ export const OperationalAlerts: React.FC = () => {
                               <BusIcon size={20} />
                             </div>
                           </div>
-                          <div className="absolute bottom-3 left-3 bg-white px-2 py-1 border border-slate-200 text-xs font-black uppercase tracking-widest">
-                            {t('alerts.gps')}: {bus.current_lat.toFixed(4)}, {bus.current_lng.toFixed(4)}
-                          </div>
+                          {alert.buses?.current_lat && alert.buses?.current_lng && (
+                            <div className="absolute bottom-3 left-3 bg-white px-2 py-1 border border-slate-200 text-xs font-black uppercase tracking-widest">
+                              GPS: {Number(alert.buses.current_lat).toFixed(4)}, {Number(alert.buses.current_lng).toFixed(4)}
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex-1 space-y-6">
                           <div className="flex justify-between items-start">
                             <div>
                               <div className="flex items-center gap-3 mb-2">
-                                <h3 className="text-xl font-black text-slate-900">{bus.bus_id}</h3>
+                                <h3 className="text-xl font-black text-slate-900">{alert.buses?.registration_number || 'SYSTEM'}</h3>
                                 <span className="px-3 py-1 bg-rose-100 text-rose-600 text-xs font-black uppercase tracking-widest flex items-center gap-1">
                                   <AlertCircle size={10} />
-                                  {t('alerts.stationary_label')}
+                                  {alert.type}
                                 </span>
                               </div>
                               <div className="flex items-center gap-2 mb-4">
                                 <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">
-                                  {t('alerts.route')}: {bus.route_name}
+                                  {alert.message}
                                 </p>
-                                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-tighter flex items-center gap-1">
-                                  <CalendarDays size={10} />
-                                  Applying {currentDay} Specific Sequence
-                                </span>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className="text-2xl font-black text-rose-600">{bus.idle_minutes}m</p>
-                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{t('alerts.idle_duration')}</p>
-                            </div>
+                            {alert.idle_duration && (
+                              <div className="text-right">
+                                <p className="text-2xl font-black text-rose-600">{alert.idle_duration}m</p>
+                                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{t('alerts.idle_duration')}</p>
+                              </div>
+                            )}
                           </div>
 
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -234,49 +238,50 @@ export const OperationalAlerts: React.FC = () => {
                               <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{t('alerts.status')}</p>
                               <div className="flex items-center gap-1 text-rose-500 font-bold text-sm uppercase">
                                 <Activity size={12} />
-                                {t('alerts.abnormal_stop')}
+                                {alert.status}
                               </div>
                             </div>
                             <div className="bg-white p-3 border border-slate-100">
-                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{t('alerts.last_movement')}</p>
-                              <p className="text-sm font-bold text-slate-900">{bus.idle_minutes} {t('alerts.min_ago')}</p>
+                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Alert Time</p>
+                              <p className="text-sm font-bold text-slate-900">
+                                {new Date(alert.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
                             </div>
                             <div className="bg-white p-3 border border-slate-100">
-                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{t('alerts.distance_to_stop')}</p>
-                              <p className="text-sm font-bold text-slate-900">1.2 km (Avinashi)</p>
+                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Location</p>
+                              <p className="text-sm font-bold text-slate-900">{alert.location || 'N/A'}</p>
                             </div>
                           </div>
 
                           <div className="flex items-center gap-4 pt-2">
-                            <button 
-                              onClick={() => navigate(`/live?search=${bus.bus_id}`)}
-                              className="px-6 py-3 bg-primary text-white text-xs font-black uppercase tracking-widest hover:bg-primary/90 transition-all flex items-center gap-2 shadow-lg shadow-primary/20"
-                            >
-                              <Eye size={14} />
-                              Track Live
-                            </button>
+                            {alert.buses?.registration_number && (
+                              <button 
+                                onClick={() => navigate(`/live?search=${alert.buses.registration_number}`)}
+                                className="px-6 py-3 bg-primary text-white text-xs font-black uppercase tracking-widest hover:bg-primary/90 transition-all flex items-center gap-2 shadow-lg shadow-primary/20"
+                              >
+                                <Eye size={14} />
+                                Track Live
+                              </button>
+                            )}
                             {!isMaster && (
                               <button 
-                                onClick={() => handleAcknowledge(bus.id)}
+                                onClick={() => handleAcknowledge(alert.id)}
                                 className="px-6 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2"
                               >
                                 <Check size={14} />
                                 {t('alerts.acknowledge')}
                               </button>
                             )}
-                            <a 
-                              href={`https://www.google.com/maps?q=${bus.current_lat},${bus.current_lng}`} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              className="px-6 py-3 border border-slate-200 text-slate-900 text-xs font-black uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2"
-                            >
-                              <ExternalLink size={14} />
-                              {t('alerts.map_link')}
-                            </a>
-                            {!isMaster && (
-                              <button className="ml-auto text-xs font-black text-rose-500 uppercase tracking-widest hover:underline">
-                                {t('alerts.escalate')}
-                              </button>
+                            {alert.buses?.current_lat && alert.buses?.current_lng && (
+                              <a 
+                                href={`https://www.google.com/maps?q=${alert.buses.current_lat},${alert.buses.current_lng}`} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="px-6 py-3 border border-slate-200 text-slate-900 text-xs font-black uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2"
+                              >
+                                <ExternalLink size={14} />
+                                {t('alerts.map_link')}
+                              </a>
                             )}
                           </div>
                         </div>
@@ -306,7 +311,6 @@ export const OperationalAlerts: React.FC = () => {
                     <History size={16} />
                     <span className="text-sm font-black uppercase tracking-widest">{t('alerts.last_24h')}</span>
                   </div>
-                  <button className="text-sm font-black text-primary uppercase tracking-widest hover:underline">{t('alerts.export')}</button>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -321,29 +325,48 @@ export const OperationalAlerts: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {[1, 2, 3, 4, 5].map((i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition-all">
-                          <td className="px-6 py-4">
-                            <p className="text-sm font-black text-slate-900">TN 39 AB 100{i}</p>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Trip #TRP-10{i}</p>
-                          </td>
-                          <td className="px-6 py-4">
-                            <p className="text-sm font-bold text-slate-900">Today, 10:24 AM</p>
-                          </td>
-                          <td className="px-6 py-4 text-sm font-bold text-slate-900">32m</td>
-                          <td className="px-6 py-4">
-                             <div className="flex items-center gap-2">
-                               <div className="w-2 h-2 bg-emerald-500 rounded-full" />
-                               <span className="text-xs font-black text-emerald-600 uppercase tracking-widest">{t('alerts.acknowledged_status')}</span>
-                             </div>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button className="p-2 text-slate-400 hover:text-primary">
-                              <ExternalLink size={16} />
-                            </button>
+                      {historyAlerts.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-8 text-center text-xs font-bold text-slate-400 uppercase tracking-widest">
+                            No history alerts found
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        historyAlerts.map((alert) => (
+                          <tr key={alert.id} className="hover:bg-slate-50 transition-all">
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-black text-slate-900">{alert.buses?.registration_number || 'SYSTEM'}</p>
+                              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{alert.type}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-bold text-slate-900">
+                                {new Date(alert.created_at).toLocaleString()}
+                              </p>
+                            </td>
+                            <td className="px-6 py-4 text-sm font-bold text-slate-900">
+                              {alert.idle_duration ? `${alert.idle_duration}m` : 'N/A'}
+                            </td>
+                            <td className="px-6 py-4">
+                               <div className="flex items-center gap-2">
+                                 <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                                 <span className="text-xs font-black text-emerald-600 uppercase tracking-widest">{alert.status}</span>
+                               </div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              {alert.buses?.current_lat && alert.buses?.current_lng && (
+                                <a 
+                                  href={`https://www.google.com/maps?q=${alert.buses.current_lat},${alert.buses.current_lng}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-block p-2 text-slate-400 hover:text-primary"
+                                >
+                                  <ExternalLink size={16} />
+                                </a>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>

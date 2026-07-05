@@ -1,22 +1,39 @@
 -- ========================================================
--- NIGAZHTHISAI SUPABASE RPC FUNCTIONS
+-- NIGAZHTHISAI COMBINED DATABASE FUNCTIONS (ALL RPCs)
 -- ========================================================
 
--- rpc_get_profile_by_id: Fetch the profile of a user by their user id
+-- 1. rpc_get_profile_by_id: Fetch the profile of a user by their user id
 create or replace function public.rpc_get_profile_by_id(user_uuid uuid)
-returns public.profiles
+returns table (
+  id uuid,
+  email varchar(255),
+  name text,
+  phone text,
+  role text,
+  status text,
+  created_at timestamp with time zone,
+  updated_at timestamp with time zone
+)
 language plpgsql
 security definer
 as $$
-declare
-  result public.profiles;
 begin
-  select * into result from public.profiles where id = user_uuid;
-  return result;
+  return query
+  select 
+    u.id,
+    u.email,
+    coalesce(u.raw_user_meta_data->>'name', 'User'),
+    coalesce(u.raw_user_meta_data->>'phone', ''),
+    coalesce(u.raw_user_meta_data->>'role', 'PASSENGER'),
+    coalesce(u.raw_user_meta_data->>'status', 'ACTIVE'),
+    u.created_at,
+    u.updated_at
+  from auth.users u
+  where u.id = user_uuid;
 end;
 $$;
 
--- rpc_get_all_trips: Get all trips filtered by district/zone
+-- 2. rpc_get_all_trips: Get all trips filtered by district/zone
 create or replace function public.rpc_get_all_trips(district_filter text default null, zone_filter text default null)
 returns setof public.trips
 language plpgsql
@@ -30,7 +47,7 @@ begin
 end;
 $$;
 
--- rpc_get_all_tickets: Get all tickets filtered by bus name
+-- 3. rpc_get_all_tickets: Get all tickets filtered by bus name
 create or replace function public.rpc_get_all_tickets(bus_name_filter text default null)
 returns setof public.tickets
 language plpgsql
@@ -43,7 +60,7 @@ begin
 end;
 $$;
 
--- rpc_get_pending_alerts: Get alerts that are pending
+-- 4. rpc_get_pending_alerts: Get alerts that are pending
 create or replace function public.rpc_get_pending_alerts()
 returns setof public.alerts
 language plpgsql
@@ -55,7 +72,7 @@ begin
 end;
 $$;
 
--- rpc_get_routes: Fetch all routes
+-- 5. rpc_get_routes: Fetch all routes
 create or replace function public.rpc_get_routes()
 returns setof public.routes
 language plpgsql
@@ -67,7 +84,7 @@ begin
 end;
 $$;
 
--- rpc_get_buses: Fetch all buses
+-- 6. rpc_get_buses: Fetch all buses
 create or replace function public.rpc_get_buses()
 returns setof public.buses
 language plpgsql
@@ -79,7 +96,7 @@ begin
 end;
 $$;
 
--- rpc_get_trips_detailed: Get detailed trips for dashboard/conductor
+-- 7. rpc_get_trips_detailed: Get detailed trips for dashboard/conductor
 create or replace function public.rpc_get_trips_detailed()
 returns table (
   id text,
@@ -119,14 +136,14 @@ begin
     t.start_time,
     t.end_time,
     t.status,
-    t.occupancy,
+    coalesce((select sum(tk.seats)::integer from public.tickets tk where tk.trip_id = t.id and tk.status in ('CONFIRMED', 'BOARDED')), 0) as occupancy,
     t.district,
     t.zone,
     t.current_segment,
     t.last_gps_time,
     t.delay_minutes,
-    t.onboard_passengers,
-    t.occupancy_percent,
+    coalesce((select sum(tk.seats)::integer from public.tickets tk where tk.trip_id = t.id and tk.status in ('CONFIRMED', 'BOARDED')), 0) as onboard_passengers,
+    coalesce(((select coalesce(sum(tk.seats), 0) from public.tickets tk where tk.trip_id = t.id and tk.status in ('CONFIRMED', 'BOARDED')) * 100) / nullif(b.capacity, 0), 0)::integer as occupancy_percent,
     t.etm_status,
     t.created_at,
     t.updated_at,
@@ -140,7 +157,7 @@ begin
 end;
 $$;
 
--- rpc_get_live_trips_detailed: Get detailed live trips
+-- 8. rpc_get_live_trips_detailed: Get detailed live trips
 create or replace function public.rpc_get_live_trips_detailed()
 returns table (
   id text,
@@ -176,17 +193,17 @@ begin
     coalesce(b.current_lat, 11.1085) as current_lat,
     coalesce(b.current_lng, 77.3411) as current_lng,
     case when t.status = 'RUNNING' then 40 else 0 end as speed,
-    coalesce(t.occupancy_percent, 50) as occupancy,
+    coalesce((select sum(tk.seats)::integer from public.tickets tk where tk.trip_id = t.id and tk.status in ('CONFIRMED', 'BOARDED')), 0) as occupancy,
     case when t.delay_minutes > 10 then 'DELAYED'::text else 'ON_TIME'::text end as status,
     false as is_idle,
     0 as idle_minutes,
     t.district,
     t.zone,
     t.delay_minutes,
-    t.occupancy_percent,
+    coalesce(((select coalesce(sum(tk.seats), 0) from public.tickets tk where tk.trip_id = t.id and tk.status in ('CONFIRMED', 'BOARDED')) * 100) / nullif(b.capacity, 0), 0)::integer as occupancy_percent,
     b.eta,
     b.capacity,
-    b.current_occupancy,
+    coalesce((select sum(tk.seats)::integer from public.tickets tk where tk.trip_id = t.id and tk.status in ('CONFIRMED', 'BOARDED')), 0) as current_occupancy,
     b.fare
   from public.trips t
   left join public.routes r on t.route_id = r.id
@@ -195,7 +212,7 @@ begin
 end;
 $$;
 
--- rpc_acknowledge_alert: Acknowledge operational alert
+-- 9. rpc_acknowledge_alert: Acknowledge operational alert
 create or replace function public.rpc_acknowledge_alert(alert_id integer)
 returns void
 language plpgsql
@@ -208,19 +225,54 @@ begin
 end;
 $$;
 
--- rpc_get_users: Get all users
+-- 10. rpc_get_users: Get all users
 create or replace function public.rpc_get_users()
-returns setof public.profiles
+returns table (
+  id uuid,
+  email varchar(255),
+  name text,
+  phone text,
+  role text,
+  status text,
+  created_at timestamp with time zone,
+  updated_at timestamp with time zone
+)
 language plpgsql
 security definer
 as $$
 begin
   return query
-  select * from public.profiles order by created_at desc;
+  select 
+    u.id,
+    u.email,
+    coalesce(u.raw_user_meta_data->>'name', 'User'),
+    coalesce(u.raw_user_meta_data->>'phone', ''),
+    coalesce(u.raw_user_meta_data->>'role', 'PASSENGER'),
+    coalesce(u.raw_user_meta_data->>'status', 'ACTIVE'),
+    u.created_at,
+    u.updated_at
+  from auth.users u
+  order by u.created_at desc;
 end;
 $$;
 
--- rpc_get_stops: Get all stops
+-- 10b. rpc_get_total_passengers: Get total passenger count
+create or replace function public.rpc_get_total_passengers()
+returns integer
+language plpgsql
+security definer
+as $$
+declare
+  cnt integer;
+begin
+  select count(*)::integer into cnt
+  from auth.users
+  where coalesce(raw_user_meta_data->>'role', 'PASSENGER') = 'PASSENGER';
+  return cnt;
+end;
+$$;
+
+-- 11. rpc_get_stops: Get all stops
 create or replace function public.rpc_get_stops()
 returns setof public.stops
 language plpgsql
@@ -232,19 +284,7 @@ begin
 end;
 $$;
 
--- rpc_get_shops: Get all shops
-create or replace function public.rpc_get_shops()
-returns setof public.shops
-language plpgsql
-security definer
-as $$
-begin
-  return query
-  select * from public.shops order by name asc;
-end;
-$$;
-
--- rpc_add_bus: Add a new bus
+-- 13. rpc_add_bus: Add a new bus
 create or replace function public.rpc_add_bus(bus_id text, reg_no text, route_id integer, capacity integer, fare numeric, district text, zone text, bus_status text default 'STOPPED')
 returns public.buses
 language plpgsql
@@ -260,7 +300,7 @@ begin
 end;
 $$;
 
--- rpc_add_route: Add a new route
+-- 14. rpc_add_route: Add a new route
 create or replace function public.rpc_add_route(code text, name text, stops jsonb)
 returns public.routes
 language plpgsql
@@ -276,7 +316,7 @@ begin
 end;
 $$;
 
--- rpc_add_trip: Add a new trip
+-- 15. rpc_add_trip: Add a new trip
 create or replace function public.rpc_add_trip(trip_id text, route_id integer, bus_id text, driver_name text, conductor_name text, status text, start_time text, district text, zone text)
 returns public.trips
 language plpgsql
@@ -292,23 +332,7 @@ begin
 end;
 $$;
 
--- rpc_add_shop: Add a new shop
-create or replace function public.rpc_add_shop(shop_id text, shop_name text, shop_description text, shop_lat numeric, shop_lng numeric, shop_status text)
-returns public.shops
-language plpgsql
-security definer
-as $$
-declare
-  inserted_shop public.shops;
-begin
-  insert into public.shops (id, name, description, lat, lng, status)
-  values (shop_id, shop_name, shop_description, shop_lat, shop_lng, shop_status)
-  returning * into inserted_shop;
-  return inserted_shop;
-end;
-$$;
-
--- rpc_update_bus: Update existing bus details
+-- 17. rpc_update_bus: Update existing bus details
 create or replace function public.rpc_update_bus(bus_id text, reg_no text, route_id integer, capacity integer, fare numeric, district text, zone text, bus_status text)
 returns void
 language plpgsql
@@ -328,7 +352,7 @@ begin
 end;
 $$;
 
--- rpc_update_route: Update existing route details
+-- 18. rpc_update_route: Update existing route details
 create or replace function public.rpc_update_route(route_id integer, code text, name text, stops jsonb)
 returns void
 language plpgsql
@@ -337,14 +361,14 @@ as $$
 begin
   update public.routes
   set 
-    code = code,
-    name = name,
-    stops = stops
-  where id = route_id;
+    code = rpc_update_route.code,
+    name = rpc_update_route.name,
+    stops = rpc_update_route.stops
+  where id = rpc_update_route.route_id;
 end;
 $$;
 
--- rpc_update_trip: Update existing trip details
+-- 19. rpc_update_trip: Update existing trip details
 create or replace function public.rpc_update_trip(trip_id text, driver_name text, conductor_name text, trip_status text)
 returns void
 language plpgsql
@@ -360,25 +384,7 @@ begin
 end;
 $$;
 
--- rpc_update_shop: Update existing shop details
-create or replace function public.rpc_update_shop(shop_id text, name text, description text, lat numeric, lng numeric, status text)
-returns void
-language plpgsql
-security definer
-as $$
-begin
-  update public.shops
-  set 
-    name = rpc_update_shop.name,
-    description = rpc_update_shop.description,
-    lat = rpc_update_shop.lat,
-    lng = rpc_update_shop.lng,
-    status = rpc_update_shop.status
-  where id = rpc_update_shop.shop_id;
-end;
-$$;
-
--- rpc_delete_bus: Delete bus
+-- 21. rpc_delete_bus: Delete bus
 create or replace function public.rpc_delete_bus(bus_id text)
 returns void
 language plpgsql
@@ -389,7 +395,7 @@ begin
 end;
 $$;
 
--- rpc_delete_route: Delete route
+-- 22. rpc_delete_route: Delete route
 create or replace function public.rpc_delete_route(route_id integer)
 returns void
 language plpgsql
@@ -400,7 +406,7 @@ begin
 end;
 $$;
 
--- rpc_delete_trip: Delete trip
+-- 23. rpc_delete_trip: Delete trip
 create or replace function public.rpc_delete_trip(trip_id text)
 returns void
 language plpgsql
@@ -411,18 +417,7 @@ begin
 end;
 $$;
 
--- rpc_delete_shop: Delete shop
-create or replace function public.rpc_delete_shop(shop_id text)
-returns void
-language plpgsql
-security definer
-as $$
-begin
-  delete from public.shops where id = shop_id;
-end;
-$$;
-
--- rpc_start_trip: Start running a trip
+-- 25. rpc_start_trip: Start running a trip
 create or replace function public.rpc_start_trip(trip_id text, start_time text)
 returns void
 language plpgsql
@@ -435,7 +430,7 @@ begin
 end;
 $$;
 
--- rpc_get_trip_detailed_by_id: Fetch detailed single trip details
+-- 26. rpc_get_trip_detailed_by_id: Fetch detailed single trip details
 create or replace function public.rpc_get_trip_detailed_by_id(trip_id text)
 returns table (
   id text,
@@ -478,7 +473,7 @@ begin
 end;
 $$;
 
--- rpc_insert_ticket: Book or issue a ticket
+-- 27. rpc_insert_ticket: Book or issue a ticket
 create or replace function public.rpc_insert_ticket(
   ticket_id text,
   user_id uuid,
@@ -508,7 +503,7 @@ begin
 end;
 $$;
 
--- rpc_get_ticket_detailed_by_id: Fetch detailed passenger ticket
+-- 28. rpc_get_ticket_detailed_by_id: Fetch detailed passenger ticket
 create or replace function public.rpc_get_ticket_detailed_by_id(ticket_id text)
 returns table (
   id text,
@@ -545,14 +540,14 @@ begin
     t.status,
     t.qr_payload,
     t.date,
-    coalesce(p.name, 'Passenger') as passenger_name
+    coalesce(u.raw_user_meta_data->>'name', 'Passenger') as passenger_name
   from public.tickets t
-  left join public.profiles p on t.user_id = p.id
+  left join auth.users u on t.user_id = u.id
   where t.id = ticket_id;
 end;
 $$;
 
--- rpc_update_ticket_status: Update status of ticket (e.g. BOARDED)
+-- 29. rpc_update_ticket_status: Update status of ticket
 create or replace function public.rpc_update_ticket_status(ticket_id text, ticket_status text)
 returns void
 language plpgsql
@@ -565,7 +560,7 @@ begin
 end;
 $$;
 
--- rpc_update_gps: Update active trip bus location and GPS timestamp
+-- 30. rpc_update_gps: Update active trip bus location
 create or replace function public.rpc_update_gps(trip_id text, lat numeric, lng numeric)
 returns void
 language plpgsql
@@ -591,20 +586,131 @@ begin
 end;
 $$;
 
--- rpc_end_trip: Mark running trip as completed
+-- 31. rpc_end_trip: Mark running trip as completed (Conductor)
 create or replace function public.rpc_end_trip(trip_id text)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_driver_ended boolean;
+begin
+  select coalesce(driver_ended, false) into v_driver_ended
+  from public.trips where id = trip_id;
+
+  update public.trips
+  set 
+    conductor_ended = true,
+    status = case when v_driver_ended = true then 'COMPLETED'::text else status end
+  where id = trip_id;
+end;
+$$;
+
+-- 31a. rpc_driver_start_trip: Start running a trip from driver's device
+create or replace function public.rpc_driver_start_trip(
+  p_trip_id text,
+  p_lat numeric,
+  p_lng numeric
+)
 returns void
 language plpgsql
 security definer
 as $$
 begin
   update public.trips
-  set status = 'COMPLETED'
-  where id = trip_id;
+  set 
+    status = 'RUNNING',
+    actual_start_time = to_char(now(), 'HH:MI AM'),
+    driver_start_lat = p_lat,
+    driver_start_lng = p_lng
+  where id = p_trip_id;
+  
+  update public.buses
+  set 
+    current_lat = p_lat,
+    current_lng = p_lng,
+    last_updated = now()
+  where id = (select bus_id from public.trips where id = p_trip_id);
 end;
 $$;
 
--- rpc_get_stops_by_district: Fetch stop names in a district
+-- 31b. rpc_driver_end_trip: End trip and verify GPS arrived at final stop
+create or replace function public.rpc_driver_end_trip(
+  p_trip_id text,
+  p_lat numeric,
+  p_lng numeric
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_route_id integer;
+  v_stops jsonb;
+  v_final_stop_name text;
+  v_final_lat numeric;
+  v_final_lng numeric;
+  v_dist numeric;
+  v_gps_verified boolean := false;
+  v_conductor_ended boolean;
+  v_result jsonb;
+begin
+  -- Get route and conductor status
+  select route_id, coalesce(conductor_ended, false) into v_route_id, v_conductor_ended
+  from public.trips where id = p_trip_id;
+
+  -- Verify GPS reached final stop if route exists
+  if v_route_id is not null then
+    select stops into v_stops from public.routes where id = v_route_id;
+    
+    if jsonb_array_length(v_stops) > 0 then
+      -- Get final stop name (last element of array)
+      v_final_stop_name := jsonb_extract_path_text(v_stops, (jsonb_array_length(v_stops) - 1)::text);
+      
+      -- Query stop coordinates
+      select lat, lng into v_final_lat, v_final_lng
+      from public.stops
+      where name = v_final_stop_name;
+      
+      -- Simple Euclidean distance check as approximation (within ~1km, or 0.01 degrees)
+      if v_final_lat is not null and v_final_lng is not null then
+        v_dist := sqrt(power(p_lat - v_final_lat, 2) + power(p_lng - v_final_lng, 2));
+        if v_dist <= 0.01 then
+          v_gps_verified := true;
+        end if;
+      else
+        -- If stop coordinates are not defined, fallback to verified
+        v_gps_verified := true;
+      end if;
+    else
+      v_gps_verified := true;
+    end if;
+  else
+    v_gps_verified := true;
+  end if;
+
+  -- Update trip
+  update public.trips
+  set 
+    driver_ended = true,
+    driver_end_lat = p_lat,
+    driver_end_lng = p_lng,
+    gps_verified = v_gps_verified,
+    end_time = to_char(now(), 'HH:MI AM'),
+    status = case when v_conductor_ended = true then 'COMPLETED'::text else status end
+  where id = p_trip_id;
+
+  v_result := jsonb_build_object(
+    'success', true,
+    'gps_verified', v_gps_verified,
+    'message', case when v_gps_verified then 'GPS verification successful: Reached final stop.' else 'GPS verification warning: Driver is not near the final stop.' end
+  );
+  
+  return v_result;
+end;
+$$;
+
+-- 32. rpc_get_stops_by_district: Fetch stops in district
 create or replace function public.rpc_get_stops_by_district(district_name text)
 returns table (
   name text
@@ -618,7 +724,7 @@ begin
 end;
 $$;
 
--- rpc_get_trips_by_district: Fetch trips with detailed nested relations inside a district
+-- 33. rpc_get_trips_by_district: Fetch trips in district
 create or replace function public.rpc_get_trips_by_district(district_name text)
 returns table (
   id text,
@@ -660,7 +766,7 @@ begin
     coalesce(b.registration_number, 'Unknown Bus') as bus_registration_number,
     coalesce(b.eta, 5) as bus_eta,
     coalesce(b.capacity, 50) as bus_capacity,
-    coalesce(b.current_occupancy, 0) as bus_current_occupancy,
+    coalesce((select sum(tk.seats)::integer from public.tickets tk where tk.trip_id = t.id and tk.status in ('CONFIRMED', 'BOARDED')), 0) as bus_current_occupancy,
     coalesce(b.fare, 14.0) as bus_fare
   from public.trips t
   left join public.routes r on t.route_id = r.id
@@ -669,7 +775,7 @@ begin
 end;
 $$;
 
--- rpc_get_tickets_by_user_id: Get tickets of a passenger
+-- 34. rpc_get_tickets_by_user_id: Fetch tickets of passenger
 create or replace function public.rpc_get_tickets_by_user_id(passenger_user_id uuid)
 returns setof public.tickets
 language plpgsql
@@ -683,7 +789,7 @@ begin
 end;
 $$;
 
--- rpc_insert_complaint: Insert a complaint
+-- 35. rpc_insert_complaint: File a complaint
 create or replace function public.rpc_insert_complaint(bus_id text, type text, description text, user_id uuid)
 returns void
 language plpgsql
@@ -695,7 +801,7 @@ begin
 end;
 $$;
 
--- rpc_get_buses_with_routes: Fetch buses list formatted with route names and stops
+-- 36. rpc_get_buses_with_routes: Fetch buses list formatted
 create or replace function public.rpc_get_buses_with_routes()
 returns table (
   bus_id text,
@@ -719,7 +825,7 @@ begin
 end;
 $$;
 
--- rpc_get_bus_by_id: Fetch a bus profile by id
+-- 37. rpc_get_bus_by_id: Fetch a bus profile
 create or replace function public.rpc_get_bus_by_id(bus_id text)
 returns public.buses
 language plpgsql
@@ -733,3 +839,219 @@ begin
 end;
 $$;
 
+-- 53. rpc_trigger_sos: Raise critical alert
+create or replace function public.rpc_trigger_sos(user_uuid uuid, lat numeric, lng numeric)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_user_name text;
+begin
+  select coalesce(raw_user_meta_data->>'name', 'Unknown') into v_user_name from auth.users where id = user_uuid;
+  
+  insert into public.alerts (type, message, location, status)
+  values (
+    'SOS',
+    'CRITICAL: SOS triggered by citizen ' || coalesce(v_user_name, 'Unknown') || ' at lat: ' || lat || ', lng: ' || lng,
+    json_build_object('lat', lat, 'lng', lng)::jsonb,
+    'PENDING'
+  );
+end;
+$$;
+
+-- 56. rpc_create_user_admin: Admin function to create user accounts safely
+create or replace function public.rpc_create_user_admin(
+  p_email text,
+  p_password text,
+  p_name text,
+  p_phone text,
+  p_role text
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  new_user_id uuid := gen_random_uuid();
+  v_password_hash text;
+  response jsonb;
+begin
+  -- Validate inputs
+  if p_email is null or p_email = '' then
+    raise exception 'Email is required';
+  end if;
+  if p_password is null or p_password = '' then
+    raise exception 'Password is required';
+  end if;
+  if p_role is null or p_role = '' then
+    raise exception 'Role is required';
+  end if;
+
+  -- Hash the password using bcrypt
+  v_password_hash := crypt(p_password, gen_salt('bf'));
+
+  -- Check if user already exists
+  if exists (select 1 from auth.users where email = lower(p_email)) then
+    raise exception 'A user with this email already exists.';
+  end if;
+
+  -- 1. Insert into auth.users
+  insert into auth.users (
+    id,
+    instance_id,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    role,
+    aud,
+    confirmation_token
+  ) values (
+    new_user_id,
+    '00000000-0000-0000-0000-000000000000',
+    lower(p_email),
+    v_password_hash,
+    now(),
+    now(),
+    json_build_object('provider', 'email', 'providers', array['email'])::jsonb,
+    json_build_object('name', p_name, 'role', p_role, 'phone', p_phone, 'status', 'ACTIVE')::jsonb,
+    now(),
+    now(),
+    'authenticated',
+    'authenticated',
+    ''
+  );
+
+  response := json_build_object(
+    'success', true,
+    'user_id', new_user_id,
+    'message', 'User successfully created'
+  );
+
+  return response;
+exception
+  when others then
+    return json_build_object(
+      'success', false,
+      'error', sqlerrm
+    );
+end;
+$$;
+
+-- 50. rpc_add_stop: Add a new master stop
+create or replace function public.rpc_add_stop(p_name text, p_district text, p_lat numeric, p_lng numeric)
+returns public.stops
+language plpgsql
+security definer
+as $$
+declare
+  inserted_stop public.stops;
+begin
+  insert into public.stops (name, district, lat, lng)
+  values (p_name, p_district, p_lat, p_lng)
+  returning * into inserted_stop;
+  return inserted_stop;
+end;
+$$;
+
+-- 51. rpc_update_stop: Update existing stop
+create or replace function public.rpc_update_stop(p_id uuid, p_name text, p_district text, p_lat numeric, p_lng numeric)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update public.stops
+  set
+    name = p_name,
+    district = p_district,
+    lat = p_lat,
+    lng = p_lng
+  where id = p_id;
+end;
+$$;
+
+-- 52. rpc_delete_stop: Delete a stop
+create or replace function public.rpc_delete_stop(p_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  delete from public.stops where id = p_id;
+end;
+$$;
+
+-- 53. rpc_delete_user: Delete user from auth.users
+create or replace function public.rpc_delete_user(p_user_id uuid)
+returns json
+language plpgsql
+security definer
+as $$
+begin
+  -- Delete from auth.users
+  delete from auth.users where id = p_user_id;
+  
+  return json_build_object('success', true);
+exception
+  when others then
+    return json_build_object('success', false, 'error', sqlerrm);
+end;
+$$;
+
+-- 54. rpc_update_user: Update user auth metadata
+create or replace function public.rpc_update_user(p_user_id uuid, p_name text, p_phone text, p_status text, p_role text)
+returns json
+language plpgsql
+security definer
+as $$
+begin
+  update auth.users
+  set
+    raw_user_meta_data = raw_user_meta_data || jsonb_build_object('name', p_name, 'phone', p_phone, 'role', p_role, 'status', p_status)
+  where id = p_user_id;
+
+  return json_build_object('success', true);
+exception
+  when others then
+    return json_build_object('success', false, 'error', sqlerrm);
+end;
+$$;
+
+-- 55. rpc_init_passenger_profile: Safe function to initialize a passenger profile if missing on login/signup
+create or replace function public.rpc_init_passenger_profile(p_name text, p_phone text)
+returns json
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid;
+  v_email text;
+begin
+  v_user_id := auth.uid();
+  if v_user_id is null then
+    return json_build_object('success', false, 'error', 'Not authenticated');
+  end if;
+
+  select email into v_email from auth.users where id = v_user_id;
+
+  update auth.users
+  set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object(
+    'name', coalesce(p_name, raw_user_meta_data->>'name', 'Passenger'),
+    'phone', coalesce(p_phone, raw_user_meta_data->>'phone', ''),
+    'role', coalesce(raw_user_meta_data->>'role', 'PASSENGER'),
+    'status', coalesce(raw_user_meta_data->>'status', 'ACTIVE')
+  )
+  where id = v_user_id;
+
+  return json_build_object('success', true);
+exception
+  when others then
+    return json_build_object('success', false, 'error', sqlerrm);
+end;
+$$;

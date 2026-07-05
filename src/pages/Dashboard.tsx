@@ -42,6 +42,7 @@ export const Dashboard: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [recentTrips, setRecentTrips] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDistrict, setSelectedDistrict] = useState('All');
   const [selectedZone, setSelectedZone] = useState('All');
@@ -64,8 +65,30 @@ export const Dashboard: React.FC = () => {
     const fetchStats = async () => {
       try {
         setIsLoading(true);
-        const data = await adminApi.getDashboardStats({ district: selectedDistrict, zone: selectedZone });
-        setStats(data);
+        const [statsData, tripsData] = await Promise.all([
+          adminApi.getDashboardStats({ district: selectedDistrict, zone: selectedZone }),
+          adminApi.getTrips()
+        ]);
+        setStats(statsData);
+
+        // Filter and sort trips for "Recent Trips"
+        const filteredTrips = tripsData.filter((t: any) => {
+          const matchesDistrict = selectedDistrict === 'All' || t.district === selectedDistrict;
+          const matchesZone = selectedZone === 'All' || t.zone === selectedZone;
+          return matchesDistrict && matchesZone;
+        });
+
+        const sortedTrips = [...filteredTrips].sort((a: any, b: any) => {
+          // Put RUNNING first
+          if (a.status === 'RUNNING' && b.status !== 'RUNNING') return -1;
+          if (a.status !== 'RUNNING' && b.status === 'RUNNING') return 1;
+          // Sort by start_time descending (fallback to created_at or id)
+          const timeA = a.start_time || a.created_at || '';
+          const timeB = b.start_time || b.created_at || '';
+          return timeB.localeCompare(timeA);
+        });
+
+        setRecentTrips(sortedTrips.slice(0, 4));
       } catch (error) {
         console.error('Failed to fetch stats', error);
       } finally {
@@ -150,7 +173,7 @@ export const Dashboard: React.FC = () => {
         />
         <StatCard 
           title={t('dash.total_passengers')} 
-          value="2,840" 
+          value={stats.total_passengers.toLocaleString()} 
           icon={Users} 
           trend="+15.3%" 
           trendUp={true} 
@@ -310,23 +333,40 @@ export const Dashboard: React.FC = () => {
             </button>
           </div>
           <div className="divide-y divide-slate-100">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-slate-50 flex items-center justify-center text-slate-400">
-                    <Navigation size={20} />
-                  </div>
-                  <div>
-                    <p className="text-base font-bold text-slate-900">Trip #TRP-10{i}</p>
-                    <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Tiruppur - Avinashi • TN 39 AB 1234</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 text-xs font-black uppercase tracking-widest">Running</span>
-                  <p className="text-xs text-slate-400 mt-1 font-bold">ETA: 12:45 PM</p>
-                </div>
+            {recentTrips.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs font-black uppercase tracking-widest">
+                No recent trips found
               </div>
-            ))}
+            ) : (
+              recentTrips.map((trip) => (
+                <div key={trip.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-slate-50 flex items-center justify-center text-slate-400">
+                      <Navigation size={20} />
+                    </div>
+                    <div>
+                      <p className="text-base font-bold text-slate-900">Trip #{trip.id}</p>
+                      <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">
+                        {trip.route_name || 'N/A'} • {trip.bus_no || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className={`px-2 py-0.5 text-xs font-black uppercase tracking-widest ${
+                      trip.status === 'RUNNING' ? 'bg-emerald-100 text-emerald-600' :
+                      trip.status === 'PLANNED' ? 'bg-blue-100 text-blue-600' :
+                      trip.status === 'COMPLETED' ? 'bg-slate-100 text-slate-600' :
+                      'bg-rose-100 text-rose-600'
+                    }`}>
+                      {trip.status}
+                    </span>
+                    <p className="text-xs text-slate-400 mt-1 font-bold">
+                      {trip.status === 'RUNNING' ? `Delay: ${trip.delay_minutes || 0}m` : `Start: ${trip.start_time || 'N/A'}`}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

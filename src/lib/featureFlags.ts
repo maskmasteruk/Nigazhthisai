@@ -7,7 +7,6 @@ type FeatureKey =
   | 'BUSES' 
   | 'ROUTES' 
   | 'TRIPS' 
-  | 'SHOPS' 
   | 'ALERTS' 
   | 'SUPPORT';
 
@@ -26,7 +25,6 @@ const DEFAULT_FLAGS: FeatureFlag[] = [
   { id: 'ROUTES', label: 'Routes Management', enabled: true },
   { id: 'TRIPS', label: 'Trips Management', enabled: true },
   { id: 'ALERTS', label: 'Operational Alerts', enabled: true },
-  { id: 'SHOPS', label: 'Shops Management', enabled: true },
   { id: 'SUPPORT', label: 'Support & FAQ', enabled: true },
 ];
 

@@ -20,6 +20,7 @@ import {
   Check, 
   Search, 
   Phone, 
+  Mail,
   Lock, 
   Printer, 
   History,
@@ -31,7 +32,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
-import { conductorApi } from '../lib/api';
+import { conductorApi, adminApi } from '../lib/api';
 
 // Real-world bus fleet for Nigazhthisai
 const BUS_FLEET = [
@@ -50,10 +51,8 @@ export const ConductorPage: React.FC = () => {
 
   // Conductor authentication & session states
   const [jwt, setJwt] = useState<string | null>(() => localStorage.getItem('conductor_jwt'));
-  const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpLoading, setOtpLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
   // Bus selection states
@@ -146,7 +145,7 @@ export const ConductorPage: React.FC = () => {
   const totalTicketsCount = ticketsToday.length;
   const totalRevenueSum = ticketsToday.reduce((sum, t) => sum + t.fare, 0);
 
-  // Live GPS Tracking Loop simulation (POST /conductor/gps every 20-30 seconds)
+  // Live GPS Tracking Loop (rpc_update_gps every 60 seconds)
   useEffect(() => {
     let gpsInterval: any = null;
     
@@ -156,32 +155,17 @@ export const ConductorPage: React.FC = () => {
           navigator.geolocation.getCurrentPosition(
             (position) => {
               const { latitude, longitude } = position.coords;
-              const payload = {
-                trip_id: activeTripId,
-                bus_id: activeBusId,
-                lat: latitude,
-                lng: longitude,
-                timestamp: new Date().toISOString()
-              };
-              
-              // Simulate: POST /conductor/gps
-              console.log("POST /conductor/gps", payload);
-              
-              // TODO: Replace with Android ETM SDK GPS coordinate readings later:
-              // if (isEtmDevice) { lat = EtmGpsSDK.getLatitude(); lng = EtmGpsSDK.getLongitude(); }
+              conductorApi.updateGPS(activeTripId, latitude, longitude)
+                .then(() => console.log("GPS Updated successfully in DB:", latitude, longitude))
+                .catch(err => console.error("GPS Update DB failed:", err));
             },
             (error) => {
               // Fallback simulated GPS coordinates in case of blocked browser permissions
-              const simulatedLat = 11.0168 + (Math.random() - 0.5) * 0.01;
-              const simulatedLng = 76.9558 + (Math.random() - 0.5) * 0.01;
-              const payload = {
-                trip_id: activeTripId,
-                bus_id: activeBusId,
-                lat: simulatedLat,
-                lng: simulatedLng,
-                timestamp: new Date().toISOString()
-              };
-              console.log("POST /conductor/gps (Simulated GPS Fallback)", payload);
+              const simulatedLat = 11.1085 + (Math.random() - 0.5) * 0.01;
+              const simulatedLng = 77.3411 + (Math.random() - 0.5) * 0.01;
+              conductorApi.updateGPS(activeTripId, simulatedLat, simulatedLng)
+                .then(() => console.log("GPS Updated successfully in DB (Simulated):", simulatedLat, simulatedLng))
+                .catch(err => console.error("GPS Update DB failed (Simulated):", err));
             }
           );
         }
@@ -190,8 +174,8 @@ export const ConductorPage: React.FC = () => {
       // Send initial GPS update instantly
       sendGPSLocation();
 
-      // Send update every 25 seconds
-      gpsInterval = setInterval(sendGPSLocation, 25000);
+      // Send update every 60 seconds (1 minute)
+      gpsInterval = setInterval(sendGPSLocation, 60000);
     }
 
     return () => {
@@ -229,31 +213,11 @@ export const ConductorPage: React.FC = () => {
   }, [boardingStop, destinationStop, passengersCount, ticketType, activeBusStops]);
 
   // 1.1 Login Action Flow
-  const handleRequestOTP = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!phone || phone.length < 10) {
-      toast.error('Enter a valid 10-digit mobile number');
-      return;
-    }
-
-    setOtpLoading(true);
-    try {
-      await conductorApi.sendOTP(phone);
-      setOtpSent(true);
-      setOtp('');
-      toast.success('Mock OTP generated: 123456');
-    } catch (err) {
-      toast.error('Failed to send OTP. Try again.');
-    } finally {
-      setOtpLoading(false);
-    }
-  };
-
-  const handleVerifyOTP = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginLoading(true);
     try {
-      const response = await conductorApi.verifyOTP(phone, otp);
+      const response = await adminApi.login({ email, password });
       
       if (response.user.role !== 'CONDUCTOR') {
         try {
@@ -276,7 +240,7 @@ export const ConductorPage: React.FC = () => {
       setCurrentView('SELECT_BUS');
       toast.success('Log in successful');
     } catch (err: any) {
-      toast.error(err.message || 'Verification failed. Use 123456.');
+      toast.error(err.message || 'Login failed. Check your credentials.');
     } finally {
       setLoginLoading(false);
     }
@@ -537,9 +501,8 @@ export const ConductorPage: React.FC = () => {
     setActiveConductorId(null);
     setTicketsToday([]);
     setTempSelectedBus(null);
-    setPhone('');
-    setOtp('');
-    setOtpSent(false);
+    setEmail('');
+    setPassword('');
 
     toast.success('Successfully logged out.');
     setCurrentView('LOGIN');
@@ -596,7 +559,10 @@ export const ConductorPage: React.FC = () => {
                   >
                     {[
                       { id: 'EN', name: 'English' },
-                      { id: 'TA', name: 'தமிழ்' }
+                      { id: 'TA', name: 'தமிழ்' },
+                      { id: 'TE', name: 'తెలుగు' },
+                      { id: 'KN', name: 'ಕನ್ನಡ' },
+                      { id: 'ML', name: 'മലയാളം' }
                     ].map((lang) => (
                       <button 
                         key={lang.id}
@@ -702,98 +668,52 @@ export const ConductorPage: React.FC = () => {
                 <p className="text-xs text-slate-400 font-extrabold uppercase tracking-widest">Nigazhthisai Conductor Portal</p>
               </div>
 
-              {!otpSent ? (
-                <form onSubmit={handleRequestOTP} className="space-y-5">
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                      <Phone size={14} className="text-[#0D2A5D]" /> Phone Number
-                    </label>
-                    <div className="relative flex rounded-xl overflow-hidden shadow-xs border border-slate-200 focus-within:border-[#0D2A5D] focus-within:ring-4 focus-within:ring-[#0D2A5D]/5 transition-all">
-                      <span className="inline-flex items-center px-4 bg-slate-50 border-r border-slate-250 text-slate-600 font-black text-sm select-none">
-                        +91
-                      </span>
-                      <input 
-                        type="tel"
-                        maxLength={10}
-                        pattern="[0-9]{10}"
-                        placeholder="Enter 10-digit mobile"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                        className="flex-1 min-w-0 block w-full px-4 py-4 bg-white text-slate-900 placeholder-slate-400 text-base font-bold focus:outline-none"
-                        required
-                        disabled={otpLoading}
-                      />
-                    </div>
-                  </div>
-
-                  <button 
-                    type="submit"
-                    disabled={otpLoading}
-                    className="w-full py-4 bg-[#0D2A5D] hover:bg-[#0a2149] disabled:opacity-50 text-white font-black text-sm uppercase tracking-widest transition-all rounded-xl shadow-md flex items-center justify-center gap-2.5 active:scale-[0.98]"
-                  >
-                    {otpLoading ? (
-                      <>
-                        <Loader2 className="animate-spin" size={16} />
-                        Requesting OTP...
-                      </>
-                    ) : (
-                      'Request OTP'
-                    )}
-                  </button>
-                </form>
-              ) : (
-                <form onSubmit={handleVerifyOTP} className="space-y-5">
-                  <div className="space-y-1.5 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                      <Phone size={12} className="text-slate-400" /> Phone Number
-                    </label>
-                    <p className="text-base font-black text-slate-800 flex items-center justify-between">
-                      <span>+91 {phone}</span>
-                      <button 
-                        type="button" 
-                        onClick={() => setOtpSent(false)} 
-                        className="text-xs font-extrabold text-[#D97F00] hover:underline uppercase"
-                      >
-                        Change
-                      </button>
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                      <Lock size={14} className="text-[#0D2A5D]" /> Enter 6-digit OTP
-                    </label>
-                    <input 
-                      type="text"
-                      maxLength={6}
-                      placeholder="Enter verification code"
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                      className="w-full px-4 py-4 bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 text-lg font-black tracking-widest text-center focus:outline-none focus:border-[#0D2A5D] focus:bg-white rounded-xl focus:ring-4 focus:ring-[#0D2A5D]/5 transition-all"
-                      required
-                      disabled={loginLoading}
-                    />
-                    <p className="text-[10px] text-[#D97F00] font-black text-center mt-2.5 uppercase tracking-wide">
-                      Use mock OTP 123456 to verify
-                    </p>
-                  </div>
-
-                  <button 
-                    type="submit"
+              <form onSubmit={handleLogin} className="space-y-5">
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <Mail size={14} className="text-[#0D2A5D]" /> Email Address
+                  </label>
+                  <input 
+                    type="email"
+                    placeholder="conductor@nigazhthisai.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-4 py-4 bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 text-sm font-bold focus:outline-none focus:border-[#0D2A5D] focus:bg-white rounded-xl focus:ring-4 focus:ring-[#0D2A5D]/5 transition-all"
+                    required
                     disabled={loginLoading}
-                    className="w-full py-4 bg-[#0D2A5D] hover:bg-[#0a2149] disabled:opacity-50 text-white font-black text-sm uppercase tracking-widest transition-all rounded-xl shadow-md flex items-center justify-center gap-2.5 active:scale-[0.98]"
-                  >
-                    {loginLoading ? (
-                      <>
-                        <Loader2 className="animate-spin" size={16} />
-                        Verifying OTP...
-                      </>
-                    ) : (
-                      'Verify & Continue'
-                    )}
-                  </button>
-                </form>
-              )}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <Lock size={14} className="text-[#0D2A5D]" /> Password
+                  </label>
+                  <input 
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-4 py-4 bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 text-sm font-bold focus:outline-none focus:border-[#0D2A5D] focus:bg-white rounded-xl focus:ring-4 focus:ring-[#0D2A5D]/5 transition-all"
+                    required
+                    disabled={loginLoading}
+                  />
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={loginLoading}
+                  className="w-full py-4 bg-[#0D2A5D] hover:bg-[#0a2149] disabled:opacity-50 text-white font-black text-sm uppercase tracking-widest transition-all rounded-xl shadow-md flex items-center justify-center gap-2.5 active:scale-[0.98]"
+                >
+                  {loginLoading ? (
+                    <>
+                      <Loader2 className="animate-spin" size={16} />
+                      Logging in...
+                    </>
+                  ) : (
+                    'Login'
+                  )}
+                </button>
+              </form>
             </motion.div>
           )}
 

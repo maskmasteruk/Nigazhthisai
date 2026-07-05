@@ -1,4 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupportedStorage } from '@supabase/supabase-js';
+import { getCookie, setCookie, eraseCookie } from '../utils/cookies';
 
 // Retrieve credentials from Vite's compiled environment variables
 const supabaseUrl = (process.env.SUPABASE_URL || (import.meta as any).env?.VITE_SUPABASE_URL || '').trim();
@@ -13,10 +14,25 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const isPlaceholder = !supabaseUrl || !supabaseAnonKey;
 
+// Cookie storage provider to store and reauthenticate Supabase Auth sessions via cookies
+const cookieStorage: SupportedStorage = {
+  getItem: (key: string): string | null => {
+    return getCookie(key);
+  },
+  setItem: (key: string, value: string): void => {
+    // Session is valid for 7 days (604800 seconds)
+    setCookie(key, value, 604800);
+  },
+  removeItem: (key: string): void => {
+    eraseCookie(key);
+  }
+};
+
 export const supabase = createClient(urlToUse, keyToUse, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true
+    detectSessionInUrl: true,
+    storage: cookieStorage
   }
 });

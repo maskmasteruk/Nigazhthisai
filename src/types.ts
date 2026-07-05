@@ -68,14 +68,6 @@ export interface Ticket {
   timestamp: string;
 }
 
-export interface SeatSegment {
-  id: string;
-  trip_id: string;
-  from_stop_id: string;
-  to_stop_id: string;
-  occupied_seats_count: number;
-}
-
 export interface GPSLog {
   id: string;
   trip_id: string;

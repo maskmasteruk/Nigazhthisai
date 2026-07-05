@@ -16,12 +16,16 @@ import {
   TrendingUp,
   Activity,
   ShieldAlert,
-  ShoppingBag
+  ShoppingBag,
+  Globe,
+  ChevronDown
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '../../lib/i18n';
 import { isFeatureEnabled } from '../../lib/featureFlags';
+import { supabase } from '../../lib/supabase';
+import { eraseCookie } from '../../utils/cookies';
 
 const MENU_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
@@ -40,6 +44,7 @@ const MENU_ITEMS = [
 export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { t, language, setLanguage } = useTranslation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isLangOpen, setIsLangOpen] = useState(false);
   const [, setTick] = useState(0); // For re-renders
   const location = useLocation();
   const navigate = useNavigate();
@@ -51,23 +56,31 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
     return () => window.removeEventListener('feature_flags_updated', handleUpdate);
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Error signing out from Supabase:', e);
+    }
     localStorage.removeItem('admin_token');
     localStorage.removeItem('user_role');
+    eraseCookie('sb-access-token');
+    eraseCookie('sb-refresh-token');
     navigate('/login');
   };
 
   const navItems = [
     { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard, path: '/dashboard', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'DASHBOARD' },
     { id: 'live', label: t('nav.live'), icon: TrendingUp, path: '/live', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'LIVE_MONITORING' },
-    { id: 'operational-setup', label: t('nav.operational_setup'), icon: Activity, path: '/operations/setup', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'OPERATIONS' },
+    { id: 'operational-setup', label: t('nav.operational_setup'), icon: Activity, path: '/operations/setup/route', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'OPERATIONS' },
     { id: 'operational-alerts', label: t('nav.alerts'), icon: ShieldAlert, path: '/operations/alerts', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'ALERTS' },
     { id: 'routes', label: t('nav.routes'), icon: MapPin, path: '/operations/routes', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'ROUTES' },
+    { id: 'stops', label: t('nav.stops'), icon: Navigation, path: '/operations/stops', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'ROUTES' },
     { id: 'buses', label: t('nav.buses'), icon: Bus, path: '/operations/buses', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'BUSES' },
     { id: 'trips', label: t('nav.trips'), icon: Navigation, path: '/operations/trips', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'TRIPS' },
     { id: 'revenue', label: t('nav.revenue'), icon: Ticket, path: '/revenue', roles: ['MASTER_ADMIN'], feature: 'REVENUE' },
     { id: 'users', label: t('nav.users'), icon: Users, path: '/users', roles: ['MASTER_ADMIN'] },
-    { id: 'settings', label: t('nav.settings'), icon: Settings, path: '/settings', roles: ['MASTER_ADMIN', 'ADMIN'] },
+    { id: 'settings', label: t('nav.settings'), icon: Settings, path: '/settings', roles: ['ADMIN'] },
     { id: 'support', label: t('nav.support'), icon: HelpCircle, path: '/support', roles: ['MASTER_ADMIN', 'ADMIN'], feature: 'SUPPORT' },
   ].filter(item => {
     const hasRole = item.roles.includes(userRole);
@@ -153,19 +166,48 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
           </div>
 
           <div className="flex items-center gap-6">
-            <div className="flex bg-slate-100 p-1 rounded-md border border-slate-200">
+            <div className="relative">
               <button 
-                onClick={() => setLanguage('EN')}
-                className={`px-3 py-1.5 text-xs font-black rounded-md transition-all ${language === 'EN' ? 'bg-white text-emerald-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+                onClick={() => setIsLangOpen(!isLangOpen)}
+                className="flex items-center gap-1.5 py-1.5 px-3 bg-slate-50 text-slate-700 font-extrabold text-xs rounded-md hover:bg-slate-100 transition-all border border-slate-200 shadow-sm"
               >
-                EN
+                <Globe size={13} className="text-slate-500" />
+                <span>{{ EN: 'EN', TA: 'TA', TE: 'TE', KN: 'KN', ML: 'ML' }[language] || language}</span>
+                <ChevronDown size={12} className={`text-slate-450 transition-transform duration-200 ${isLangOpen ? 'rotate-180' : ''}`} />
               </button>
-              <button 
-                onClick={() => setLanguage('TA')}
-                className={`px-3 py-1.5 text-xs font-black rounded-md transition-all ${language === 'TA' ? 'bg-white text-emerald-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                TA
-              </button>
+              
+              <AnimatePresence>
+                {isLangOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsLangOpen(false)} />
+                    <motion.div 
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 5 }}
+                      className="absolute right-0 mt-2 bg-white border border-slate-200 shadow-xl z-50 w-32 overflow-hidden rounded-md"
+                    >
+                      {[
+                        { id: 'EN', name: 'English' },
+                        { id: 'TA', name: 'தமிழ்' },
+                        { id: 'TE', name: 'తెలుగు' },
+                        { id: 'KN', name: 'ಕನ್ನಡ' },
+                        { id: 'ML', name: 'മലയാളം' }
+                      ].map((lang) => (
+                        <button 
+                          key={lang.id}
+                          onClick={() => {
+                            setLanguage(lang.id as any);
+                            setIsLangOpen(false);
+                          }}
+                          className={`w-full text-left py-2 px-3 text-xs font-bold ${language === lang.id ? 'bg-[#0D2A5D] text-white' : 'text-slate-700 hover:bg-slate-50'} transition-colors`}
+                        >
+                          {lang.name}
+                        </button>
+                      ))}
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
             </div>
             <button className="relative p-2 hover:bg-slate-100 transition-all text-slate-500">
               <Bell size={20} />

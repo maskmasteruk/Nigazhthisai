@@ -23,11 +23,11 @@ export const translations: Translations = {
   // Navigation
   'nav.dashboard': { EN: 'Dashboard', TA: 'டாஷ்போர்டு' },
   'nav.operations': { EN: 'Operations', TA: 'செயல்பாடுகள்' },
-  'nav.routes': { EN: 'Routes & Stops', TA: 'வழித்தடங்கள் & நிறுத்தங்கள்' },
+  'nav.routes': { EN: 'Routes', TA: 'வழித்தடங்கள்' },
+  'nav.stops': { EN: 'Stops', TA: 'நிறுத்தங்கள்' },
   'nav.buses': { EN: 'Buses & ETM', TA: 'பேருந்துகள் & ETM' },
   'nav.trips': { EN: 'Trips & Schedules', TA: 'பயணங்கள் & கால அட்டவணைகள்' },
   'nav.alerts': { EN: 'Idle & Alerts', TA: 'தாமத எச்சரிக்கைகள்' },
-  'nav.shops': { EN: 'Nearby Shops & Deals', TA: 'அருகிலுள்ள கடைகள் & சலுகைகள்' },
   'nav.live': { EN: 'Live Monitoring', TA: 'நேரடி கண்காணிப்பு' },
   'nav.revenue': { EN: 'Tickets & Revenue', TA: 'டிக்கெட்டுகள் & வருவாய்' },
   'nav.users': { EN: 'Users & Roles', TA: 'பயனர்கள் & பாத்திரங்கள்' },
