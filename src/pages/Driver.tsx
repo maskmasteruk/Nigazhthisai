@@ -21,6 +21,7 @@ import { useTranslation } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 import { driverApi, adminApi } from '../lib/api';
 import { eraseCookie } from '../utils/cookies';
+import { NigazhthisaiIcon } from '../components/NigazhthisaiLogo';
 
 const BUS_FLEET = [
   { bus_id: 'bus-1', number_plate: 'TN 38 AB 1234', route_name: 'Route 32: Tiruppur - Avinashi', stops: ['Tiruppur Old Bus Stand', 'Pushpa Theatre', 'Kumar Nagar', 'Thendral Nagar', 'Avinashi'] },
@@ -267,8 +268,8 @@ export const DriverPage: React.FC = () => {
       {/* Top Header */}
       <header className="bg-slate-900/80 backdrop-blur border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
-            <BusIcon size={20} className="text-white" />
+          <div className="shrink-0">
+            <NigazhthisaiIcon size={38} className="rounded-xl" />
           </div>
           <div>
             <h1 className="text-base font-black tracking-tight uppercase">
@@ -297,17 +298,23 @@ export const DriverPage: React.FC = () => {
                   exit={{ opacity: 0, y: 10 }}
                   className="absolute right-0 mt-1.5 w-32 bg-slate-900 border border-slate-800 shadow-2xl py-1"
                 >
-                  {['en', 'ta'].map((lang) => (
+                  {[
+                    { id: 'EN', name: 'English' },
+                    { id: 'TA', name: 'தமிழ்' },
+                    { id: 'TE', name: 'తెలుగు' },
+                    { id: 'KN', name: 'ಕನ್ನಡ' },
+                    { id: 'ML', name: 'മലയാളം' }
+                  ].map((lang) => (
                     <button
-                      key={lang}
+                      key={lang.id}
                       onClick={() => {
-                        setLanguage(lang as any);
+                        setLanguage(lang.id as any);
                         setIsLangOpen(false);
                       }}
-                      className="w-full px-4 py-2 text-left text-xs font-bold uppercase tracking-wider hover:bg-slate-800 flex items-center justify-between"
+                      className="w-full px-4 py-2 text-left text-xs font-bold uppercase tracking-wider hover:bg-slate-800 flex items-center justify-between text-slate-350"
                     >
-                      <span>{lang === 'en' ? 'English' : 'தமிழ்'}</span>
-                      {language === lang && <Check size={14} className="text-primary" />}
+                      <span>{lang.name}</span>
+                      {language === lang.id && <Check size={14} className="text-[#D97F00]" />}
                     </button>
                   ))}
                 </motion.div>

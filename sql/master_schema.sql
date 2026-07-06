@@ -49,7 +49,7 @@ create table if not exists public.buses (
 -- 4. TRIPS TABLE
 create table if not exists public.trips (
   id text primary key,
-  route_id integer references public.routes(id) on delete cascade,
+  route_id integer references public.routes(id) on delete cascade not null,
   bus_id text references public.buses(id) on delete set null,
   driver_name text,
   conductor_name text,
@@ -132,7 +132,8 @@ create table if not exists public.alerts (
   idle_duration integer,
   location jsonb,
   status text not null default 'PENDING' check (status in ('PENDING', 'RESOLVED', 'ACKNOWLEDGED')),
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  user_id uuid references auth.users(id) on delete set null
 );
 
 -- 9. STOPS TABLE

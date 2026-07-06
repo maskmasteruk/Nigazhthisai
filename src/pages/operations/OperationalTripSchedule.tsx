@@ -92,8 +92,28 @@ export const OperationalTripSchedule: React.FC = () => {
       setBuses(busesList);
       setTrips(tripsList);
 
-      const driverUsers = usersList.filter((u: any) => u.role?.toUpperCase() === 'DRIVER' && u.status?.toUpperCase() === 'ACTIVE');
-      const conductorUsers = usersList.filter((u: any) => u.role?.toUpperCase() === 'CONDUCTOR' && u.status?.toUpperCase() === 'ACTIVE');
+      const driverUsers = (usersList || []).filter((u: any) => {
+        const role = (u.role || u.raw_user_meta_data?.role || u.user_metadata?.role || '').toUpperCase();
+        const status = (u.status || u.raw_user_meta_data?.status || u.user_metadata?.status || 'ACTIVE').toUpperCase();
+        let isDriver = false;
+        if (role === 'DRIVER') {
+          isDriver = true;
+        } else if (role === '' || role === 'PASSENGER') {
+          isDriver = !!(u.email && u.email.toLowerCase().includes('driver'));
+        }
+        return isDriver && status === 'ACTIVE';
+      });
+      const conductorUsers = (usersList || []).filter((u: any) => {
+        const role = (u.role || u.raw_user_meta_data?.role || u.user_metadata?.role || '').toUpperCase();
+        const status = (u.status || u.raw_user_meta_data?.status || u.user_metadata?.status || 'ACTIVE').toUpperCase();
+        let isConductor = false;
+        if (role === 'CONDUCTOR') {
+          isConductor = true;
+        } else if (role === '' || role === 'PASSENGER') {
+          isConductor = !!(u.email && u.email.toLowerCase().includes('conductor'));
+        }
+        return isConductor && status === 'ACTIVE';
+      });
       setDrivers(driverUsers);
       setConductors(conductorUsers);
 

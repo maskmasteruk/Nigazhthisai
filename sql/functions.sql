@@ -245,10 +245,10 @@ begin
   select 
     u.id,
     u.email,
-    coalesce(u.raw_user_meta_data->>'name', 'User'),
-    coalesce(u.raw_user_meta_data->>'phone', ''),
-    coalesce(u.raw_user_meta_data->>'role', 'PASSENGER'),
-    coalesce(u.raw_user_meta_data->>'status', 'ACTIVE'),
+    coalesce(u.raw_user_meta_data->>'name', 'User') as name,
+    coalesce(u.raw_user_meta_data->>'phone', '') as phone,
+    coalesce(u.raw_user_meta_data->>'role', 'PASSENGER') as role,
+    coalesce(u.raw_user_meta_data->>'status', 'ACTIVE') as status,
     u.created_at,
     u.updated_at
   from auth.users u
@@ -842,22 +842,27 @@ $$;
 
 -- 53. rpc_trigger_sos: Raise critical alert
 create or replace function public.rpc_trigger_sos(user_uuid uuid, lat numeric, lng numeric)
-returns void
+returns integer
 language plpgsql
 security definer
 as $$
 declare
   v_user_name text;
+  v_alert_id integer;
 begin
   select coalesce(raw_user_meta_data->>'name', 'Unknown') into v_user_name from auth.users where id = user_uuid;
   
-  insert into public.alerts (type, message, location, status)
+  insert into public.alerts (type, message, location, status, user_id)
   values (
     'SOS',
     'CRITICAL: SOS triggered by citizen ' || coalesce(v_user_name, 'Unknown') || ' at lat: ' || lat || ', lng: ' || lng,
     json_build_object('lat', lat, 'lng', lng)::jsonb,
-    'PENDING'
-  );
+    'PENDING',
+    user_uuid
+  )
+  returning id into v_alert_id;
+  
+  return v_alert_id;
 end;
 $$;
 

@@ -7,13 +7,14 @@ import { RazorpayOrder } from '../types/nigazhthisai';
 
 export class NigazhthisaiRepository {
   
-  static async triggerSOS(userId: string, lat: number, lng: number): Promise<void> {
-    const { error } = await supabase.rpc('rpc_trigger_sos', {
+  static async triggerSOS(userId: string, lat: number, lng: number): Promise<number> {
+    const { data, error } = await supabase.rpc('rpc_trigger_sos', {
       user_uuid: userId,
       lat: lat,
       lng: lng
     });
     if (error) throw error;
+    return data as number;
   }
 
   static async createRazorpayOrder(userId: string, amount: number): Promise<RazorpayOrder> {

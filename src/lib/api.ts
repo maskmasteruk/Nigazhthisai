@@ -151,7 +151,9 @@ export const adminApi = {
       is_idle: t.is_idle,
       idle_minutes: t.idle_minutes,
       district: t.district,
-      zone: t.zone
+      zone: t.zone,
+      stops: t.stops || [],
+      current_segment: t.current_segment || ''
     }));
   },
 
@@ -224,6 +226,23 @@ export const adminApi = {
     const { error } = await supabase.rpc('rpc_acknowledge_alert', { alert_id: Number(id) });
     if (error) throw error;
     return { success: true };
+  },
+
+  getAlertMessages: async (alertId: number) => {
+    const { data, error } = await supabase.rpc('rpc_get_alert_messages', { p_alert_id: alertId });
+    if (error) throw error;
+    return data || [];
+  },
+
+  sendAlertMessage: async (alertId: number, senderRole: string, senderName: string, message: string) => {
+    const { data, error } = await supabase.rpc('rpc_send_alert_message', {
+      p_alert_id: alertId,
+      p_sender_role: senderRole,
+      p_sender_name: senderName,
+      p_message: message
+    });
+    if (error) throw error;
+    return data;
   },
 
   getAlerts: async () => {
@@ -345,9 +364,9 @@ export const adminApi = {
       driver_name: tripData.driver_name,
       conductor_name: tripData.conductor_name,
       status: tripData.status || 'SCHEDULED',
-      start_time: tripData.actual_start_time || null,
-      district: tripData.district,
-      zone: tripData.zone
+      start_time: tripData.start_time || tripData.actual_start_time || null,
+      district: tripData.district || null,
+      zone: tripData.zone || null
     });
     if (error) throw error;
     return data;

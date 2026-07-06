@@ -49,7 +49,7 @@ create table public.buses (
 -- TRIPS TABLE (running or scheduled bus schedules)
 create table public.trips (
   id text primary key, -- Custom ID like 'TRIP-123456'
-  route_id integer references public.routes(id) on delete cascade,
+  route_id integer references public.routes(id) on delete cascade not null,
   bus_id text references public.buses(id) on delete set null,
   driver_name text,
   conductor_name text,
@@ -144,7 +144,8 @@ create table public.alerts (
   idle_duration integer,
   location jsonb, -- {lat, lng}
   status text not null default 'PENDING' check (status in ('PENDING', 'RESOLVED', 'ACKNOWLEDGED')),
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  user_id uuid references auth.users(id) on delete set null
 );
 
 -- SHOPS TABLE (stop amenities / local deals)
@@ -397,7 +398,6 @@ values
 on conflict (id) do update
 set status = excluded.status, occupancy = excluded.occupancy;
 
--- SEED AMENITY SHOPS
 insert into public.shops (id, stop_id, name, description, deal, lat, lng, status)
 values 
   ('1', 'Koyambedu (CMBT)', 'Hotel Annapoorna', 'Famous for South Indian coffee and hot idlis', 'Free Coffee with Main Meal', 13.0733, 80.1914, 'ACTIVE'),
@@ -405,3 +405,21 @@ values
   ('3', 'Mattuthavani', 'Famous Jigarthanda', 'Iconic sweet milk beverage of Madurai', 'Buy 1 Get 1 Free on Mini Cup', 9.9400, 78.1500, 'ACTIVE')
 on conflict (id) do update
 set name = excluded.name, description = excluded.description, deal = excluded.deal;
+
+-- ALERT MESSAGES TABLE FOR CHAT
+create table if not exists public.alert_messages (
+  id serial primary key,
+  alert_id integer references public.alerts(id) on delete cascade not null,
+  sender_role text not null check (sender_role in ('ADMIN', 'CONDUCTOR', 'DRIVER', 'SYSTEM')),
+  sender_name text not null,
+  message text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Enable RLS
+alter table public.alert_messages enable row level security;
+
+-- Policies
+create policy "Anyone read alert messages" on public.alert_messages for select using (true);
+create policy "Anyone insert alert messages" on public.alert_messages for insert with check (true);
+

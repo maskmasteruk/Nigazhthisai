@@ -54,7 +54,7 @@ create table if not exists public.buses (
 -- TRIPS TABLE
 create table if not exists public.trips (
   id text primary key,
-  route_id integer references public.routes(id) on delete cascade,
+  route_id integer references public.routes(id) on delete cascade not null,
   bus_id text references public.buses(id) on delete set null,
   driver_name text,
   conductor_name text,
@@ -137,7 +137,8 @@ create table if not exists public.alerts (
   idle_duration integer,
   location jsonb,
   status text not null default 'PENDING' check (status in ('PENDING', 'RESOLVED', 'ACKNOWLEDGED')),
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  user_id uuid references auth.users(id) on delete set null
 );
 
 -- STOPS TABLE
@@ -315,10 +316,10 @@ begin
   select 
     u.id,
     u.email,
-    coalesce(u.raw_user_meta_data->>'name', 'User'),
-    coalesce(u.raw_user_meta_data->>'phone', ''),
-    coalesce(u.raw_user_meta_data->>'role', 'PASSENGER'),
-    coalesce(u.raw_user_meta_data->>'status', 'ACTIVE'),
+    coalesce(u.raw_user_meta_data->>'name', 'User') as name,
+    coalesce(u.raw_user_meta_data->>'phone', '') as phone,
+    coalesce(u.raw_user_meta_data->>'role', 'PASSENGER') as role,
+    coalesce(u.raw_user_meta_data->>'status', 'ACTIVE') as status,
     u.created_at,
     u.updated_at
   from auth.users u
@@ -538,10 +539,10 @@ begin
   select 
     u.id,
     u.email,
-    coalesce(u.raw_user_meta_data->>'name', 'User'),
-    coalesce(u.raw_user_meta_data->>'phone', ''),
-    coalesce(u.raw_user_meta_data->>'role', 'PASSENGER'),
-    coalesce(u.raw_user_meta_data->>'status', 'ACTIVE'),
+    coalesce(u.raw_user_meta_data->>'name', 'User') as name,
+    coalesce(u.raw_user_meta_data->>'phone', '') as phone,
+    coalesce(u.raw_user_meta_data->>'role', 'PASSENGER') as role,
+    coalesce(u.raw_user_meta_data->>'status', 'ACTIVE') as status,
     u.created_at,
     u.updated_at
   from auth.users u
@@ -1135,22 +1136,27 @@ $$;
 
 -- 53. rpc_trigger_sos: Raise critical alert
 create or replace function public.rpc_trigger_sos(user_uuid uuid, lat numeric, lng numeric)
-returns void
+returns integer
 language plpgsql
 security definer
 as $$
 declare
   v_user_name text;
+  v_alert_id integer;
 begin
   select coalesce(raw_user_meta_data->>'name', 'Unknown') into v_user_name from auth.users where id = user_uuid;
   
-  insert into public.alerts (type, message, location, status)
+  insert into public.alerts (type, message, location, status, user_id)
   values (
     'SOS',
     'CRITICAL: SOS triggered by citizen ' || coalesce(v_user_name, 'Unknown') || ' at lat: ' || lat || ', lng: ' || lng,
     json_build_object('lat', lat, 'lng', lng)::jsonb,
-    'PENDING'
-  );
+    'PENDING',
+    user_uuid
+  )
+  returning id into v_alert_id;
+  
+  return v_alert_id;
 end;
 $$;
 

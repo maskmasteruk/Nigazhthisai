@@ -7,7 +7,7 @@ import { RazorpayOrder } from '../types/nigazhthisai';
 
 export class NigazhthisaiService {
   
-  static async triggerSOS(userId: string, lat: number, lng: number): Promise<void> {
+  static async triggerSOS(userId: string, lat: number, lng: number): Promise<number> {
     if (!userId) throw new Error('Unauthorized.');
     return await NigazhthisaiRepository.triggerSOS(userId, lat, lng);
   }

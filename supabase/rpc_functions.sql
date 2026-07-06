@@ -178,7 +178,9 @@ returns table (
   eta integer,
   capacity integer,
   current_occupancy integer,
-  fare numeric
+  fare numeric,
+  stops jsonb,
+  current_segment text
 )
 language plpgsql
 security definer
@@ -204,7 +206,9 @@ begin
     b.eta,
     b.capacity,
     b.current_occupancy,
-    b.fare
+    b.fare,
+    coalesce(r.stops, '[]'::jsonb) as stops,
+    t.current_segment
   from public.trips t
   left join public.routes r on t.route_id = r.id
   left join public.buses b on t.bus_id = b.id
@@ -332,9 +336,20 @@ security definer
 as $$
 declare
   inserted_trip public.trips;
+  final_district text;
+  final_zone text;
 begin
+  final_district := district;
+  final_zone := zone;
+
+  if final_district is null or final_district = '' then
+    select r.district, r.zone into final_district, final_zone
+    from public.routes r
+    where r.id = route_id;
+  end if;
+
   insert into public.trips (id, route_id, bus_id, driver_name, conductor_name, status, start_time, district, zone)
-  values (trip_id, route_id, bus_id, driver_name, conductor_name, status, start_time, district, zone)
+  values (trip_id, route_id, bus_id, driver_name, conductor_name, status, start_time, final_district, final_zone)
   returning * into inserted_trip;
   return inserted_trip;
 end;
@@ -921,22 +936,27 @@ $$;
 
 -- rpc_trigger_sos: Raise critical alert
 create or replace function public.rpc_trigger_sos(user_uuid uuid, lat numeric, lng numeric)
-returns void
+returns integer
 language plpgsql
 security definer
 as $$
 declare
   v_user_name text;
+  v_alert_id integer;
 begin
   select coalesce(raw_user_meta_data->>'name', 'Unknown') into v_user_name from auth.users where id = user_uuid;
   
-  insert into public.alerts (type, message, location, status)
+  insert into public.alerts (type, message, location, status, user_id)
   values (
     'SOS',
     'CRITICAL: SOS triggered by citizen ' || coalesce(v_user_name, 'Unknown') || ' at lat: ' || lat || ', lng: ' || lng,
     json_build_object('lat', lat, 'lng', lng)::jsonb,
-    'PENDING'
-  );
+    'PENDING',
+    user_uuid
+  )
+  returning id into v_alert_id;
+  
+  return v_alert_id;
 end;
 $$;
 
@@ -983,4 +1003,55 @@ begin
   delete from public.stops where id = p_id;
 end;
 $$;
+
+-- rpc_get_alert_messages: Get messages for an alert
+create or replace function public.rpc_get_alert_messages(p_alert_id integer)
+returns table (
+  id integer,
+  alert_id integer,
+  sender_role text,
+  sender_name text,
+  message text,
+  created_at timestamp with time zone
+)
+language plpgsql
+security definer
+as $$
+begin
+  return query
+  select 
+    m.id,
+    m.alert_id,
+    m.sender_role,
+    m.sender_name,
+    m.message,
+    m.created_at
+  from public.alert_messages m
+  where m.alert_id = p_alert_id
+  order by m.created_at asc;
+end;
+$$;
+
+-- rpc_send_alert_message: Send a message in an alert chat
+create or replace function public.rpc_send_alert_message(
+  p_alert_id integer,
+  p_sender_role text,
+  p_sender_name text,
+  p_message text
+)
+returns public.alert_messages
+language plpgsql
+security definer
+as $$
+declare
+  v_inserted public.alert_messages;
+begin
+  insert into public.alert_messages (alert_id, sender_role, sender_name, message)
+  values (p_alert_id, p_sender_role, p_sender_name, p_message)
+  returning * into v_inserted;
+  
+  return v_inserted;
+end;
+$$;
+
 

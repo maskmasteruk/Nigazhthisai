@@ -21,7 +21,11 @@ import {
   ChevronDown,
   CreditCard,
   RefreshCw,
-  Menu
+  Menu,
+  ShieldAlert,
+  Send,
+  MessageSquare,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -34,6 +38,7 @@ import { NigazhthisaiIcon } from '../components/NigazhthisaiLogo';
 // Nigazhthisai Hooks & Types
 import { useNigazhthisai } from '../hooks/useNigazhthisai';
 import { eraseCookie } from '../utils/cookies';
+import { adminApi } from '../lib/api';
 
 type View = 
   | 'HOME'
@@ -120,15 +125,26 @@ const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => 
 
 const LiveOccupancyProgressBar: React.FC<{ occupancy: number; max?: number }> = ({ occupancy, max = 50 }) => {
   const percentage = Math.min((occupancy / max) * 100, 100);
-  let fillBgClass = 'bg-gradient-to-r from-emerald-500 to-teal-400';
-  let shadowStyle = 'rgba(16,185,129,0.3)';
-  
-  if (percentage >= 80) {
-    fillBgClass = 'bg-gradient-to-r from-emerald-500 via-amber-500 via-orange-500 to-rose-600 animate-[pulse_1.5s_infinite]';
-    shadowStyle = 'rgba(244,63,94,0.6)';
-  } else if (percentage >= 50) {
-    fillBgClass = 'bg-gradient-to-r from-emerald-500 via-yellow-450 to-amber-500';
-    shadowStyle = 'rgba(245,158,11,0.4)';
+  let fillBgClass = '';
+  let fillColor: string | null = null;
+  let shadowStyle = '';
+
+  if (percentage > 93) {
+    // No Space: Flashing vibrant gradient
+    fillBgClass = 'bg-gradient-to-r from-rose-600 via-purple-600 via-orange-500 to-rose-600 animate-[pulse_1s_infinite]';
+    shadowStyle = 'rgba(225,29,72,0.6)';
+  } else if (percentage > 83) {
+    // Last 10% (83% - 93%): Solid Red
+    fillColor = '#ef4444'; // Explicit hex Red
+    shadowStyle = 'rgba(239,68,68,0.4)';
+  } else if (percentage > 33) {
+    // Next 50% (33% - 83%): Solid Orange
+    fillColor = '#f97316'; // Explicit hex Orange
+    shadowStyle = 'rgba(249,115,22,0.3)';
+  } else {
+    // 0% - 33%: Solid Green
+    fillColor = '#22c55e'; // Explicit hex Green
+    shadowStyle = 'rgba(34,197,94,0.3)';
   }
 
   return (
@@ -141,7 +157,10 @@ const LiveOccupancyProgressBar: React.FC<{ occupancy: number; max?: number }> = 
           initial={{ width: 0 }}
           animate={{ width: `${percentage}%` }}
           transition={{ duration: 1.2, ease: "easeOut" }}
-          style={{ boxShadow: `0 0 10px ${shadowStyle}` }}
+          style={{ 
+            boxShadow: `0 0 10px ${shadowStyle}`,
+            ...(fillColor ? { backgroundColor: fillColor } : {})
+          }}
           className={`h-full relative rounded-none transition-all ${fillBgClass}`}
         >
           <div className="absolute inset-0 bg-white/10 mix-blend-overlay" />
@@ -194,17 +213,173 @@ export const PassengerPage: React.FC = () => {
 
   // SOS Countdown state
   const [sosActive, setSosActive] = useState(false);
+  const [userName, setUserName] = useState<string>('Citizen');
+
+  // SOS Chat State
+  const [activeSosAlertId, setActiveSosAlertId] = useState<number | null>(null);
+  const [isSosChatOpen, setIsSosChatOpen] = useState(false);
+  const [sosMessages, setSosMessages] = useState<any[]>([]);
+  const [newSosMessageText, setNewSosMessageText] = useState('');
+
+  const fetchSosMessages = async (alertId: number) => {
+    try {
+      const { data, error } = await supabase.rpc('rpc_get_alert_messages', { p_alert_id: alertId });
+      if (!error && data) {
+        setSosMessages(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSendSosMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSosMessageText.trim() || !activeSosAlertId) return;
+    try {
+      const { data, error } = await supabase.rpc('rpc_send_alert_message', {
+        p_alert_id: activeSosAlertId,
+        p_sender_role: 'SYSTEM',
+        p_sender_name: userName,
+        p_message: newSosMessageText.trim()
+      });
+      if (!error && data) {
+        setNewSosMessageText('');
+        setSosMessages(prev => [...prev, data]);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Poll SOS messages
+  useEffect(() => {
+    if (!isSosChatOpen || !activeSosAlertId) return;
+    fetchSosMessages(activeSosAlertId);
+    const interval = setInterval(() => {
+      fetchSosMessages(activeSosAlertId);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isSosChatOpen, activeSosAlertId]);
+
+  const [sosAlerts, setSosAlerts] = useState<any[]>([]);
+  const [isLoadingSosAlerts, setIsLoadingSosAlerts] = useState(false);
+  const [activityTab, setActivityTab] = useState<'BOOKINGS' | 'SOS'>('BOOKINGS');
+
+  const fetchPassengerSosAlerts = async (uid: string) => {
+    if (!uid || uid === '00000000-0000-0000-0000-000000000000') return;
+    try {
+      setIsLoadingSosAlerts(true);
+      const { data, error } = await supabase
+        .from('alerts')
+        .select('*')
+        .eq('type', 'SOS')
+        .eq('user_id', uid)
+        .order('created_at', { ascending: false });
+      if (!error && data) {
+        setSosAlerts(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingSosAlerts(false);
+    }
+  };
+
+  const [allocationLoading, setAllocationLoading] = useState(false);
+  const [allocationError, setAllocationError] = useState<string | null>(null);
+  const [allocatedDriver, setAllocatedDriver] = useState<{ name: string; phone: string } | null>(null);
+  const [allocatedConductor, setAllocatedConductor] = useState<{ name: string; phone: string } | null>(null);
+
+  useEffect(() => {
+    const fetchAllocationDetails = async () => {
+      if (!selectedTrip) {
+        setAllocatedDriver(null);
+        setAllocatedConductor(null);
+        return;
+      }
+      
+      setAllocationLoading(true);
+      setAllocationError(null);
+      
+      try {
+        const users = await adminApi.getUsers();
+        
+        // Find driver
+        const driverName = selectedTrip.driver_name;
+        if (driverName && driverName.toLowerCase() !== 'not allocated' && driverName.trim()) {
+          const driverUser = (users || []).find((u: any) => 
+            u.name?.toLowerCase().trim() === driverName.toLowerCase().trim() &&
+            (u.role?.toUpperCase() === 'DRIVER' || u.email?.toLowerCase().includes('driver'))
+          );
+          if (driverUser) {
+            setAllocatedDriver({
+              name: driverUser.name,
+              phone: driverUser.phone || ''
+            });
+          } else {
+            setAllocatedDriver({
+              name: driverName,
+              phone: ''
+            });
+          }
+        } else {
+          setAllocatedDriver(null);
+        }
+
+        // Find conductor
+        const conductorName = selectedTrip.conductor_name;
+        if (conductorName && conductorName.toLowerCase() !== 'not allocated' && conductorName.trim()) {
+          const conductorUser = (users || []).find((u: any) => 
+            u.name?.toLowerCase().trim() === conductorName.toLowerCase().trim() &&
+            (u.role?.toUpperCase() === 'CONDUCTOR' || u.email?.toLowerCase().includes('conductor'))
+          );
+          if (conductorUser) {
+            setAllocatedConductor({
+              name: conductorUser.name,
+              phone: conductorUser.phone || ''
+            });
+          } else {
+            setAllocatedConductor({
+              name: conductorName,
+              phone: ''
+            });
+          }
+        } else {
+          setAllocatedConductor(null);
+        }
+      } catch (err) {
+        console.error('Failed to load allocation details:', err);
+        setAllocationError('Failed to load allocation details.');
+      } finally {
+        setAllocationLoading(false);
+      }
+    };
+
+    fetchAllocationDetails();
+  }, [selectedTrip]);
 
   // Retrieve user session or initialize local passenger guest uuid
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         setUserId(user.id);
+        fetchPassengerSosAlerts(user.id);
+        if (user.user_metadata?.name) {
+          setUserName(user.user_metadata.name);
+        }
       } else {
         setUserId('00000000-0000-0000-0000-000000000000');
+        setUserName('Citizen');
       }
     });
   }, []);
+
+  // Poll passenger sos alerts history when currentView is ACTIVITY
+  useEffect(() => {
+    if (currentView === 'ACTIVITY' && userId) {
+      fetchPassengerSosAlerts(userId);
+    }
+  }, [currentView, userId]);
 
   // Initialize Nigazhthisai custom hook with user session id
   const superApp = useNigazhthisai(userId);
@@ -463,11 +638,21 @@ export const PassengerPage: React.FC = () => {
   const triggerSOSAlert = () => {
     setSosActive(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        superApp.triggerSOS(pos.coords.latitude, pos.coords.longitude);
+      async (pos) => {
+        const alertId = await superApp.triggerSOS(pos.coords.latitude, pos.coords.longitude);
+        if (alertId) {
+          setActiveSosAlertId(alertId);
+          setIsSosChatOpen(true);
+          if (userId) fetchPassengerSosAlerts(userId);
+        }
       },
-      () => {
-        superApp.triggerSOS(13.0827, 80.2707); // Default Chennai fallback
+      async () => {
+        const alertId = await superApp.triggerSOS(13.0827, 80.2707); // Default Chennai fallback
+        if (alertId) {
+          setActiveSosAlertId(alertId);
+          setIsSosChatOpen(true);
+          if (userId) fetchPassengerSosAlerts(userId);
+        }
       }
     );
     setTimeout(() => {
@@ -495,7 +680,7 @@ export const PassengerPage: React.FC = () => {
           </div>
           <div className="flex items-baseline justify-between mt-auto">
             <div>
-              <p className="text-xl font-black tracking-tight">Welcome, Citizen</p>
+              <p className="text-xl font-black tracking-tight">Welcome, {userName}</p>
             </div>
             <div className="text-right">
               <span className="text-[9px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 font-bold rounded-none">ONLINE</span>
@@ -789,8 +974,18 @@ export const PassengerPage: React.FC = () => {
   );
 
   const TrackingView = () => {
-    const currentLat = selectedTrip?.buses?.current_lat || 11.1085;
-    const currentLng = selectedTrip?.buses?.current_lng || 77.3411;
+    const routeStops: string[] = selectedTrip?.routes?.stops || [];
+    const stopsToUse = routeStops.length > 0 ? routeStops : [fromStop, 'Stop A', 'Stop B', 'Stop C', toStop];
+    
+    const currentSegment = selectedTrip?.current_segment || '';
+    let activeStopIndex = stopsToUse.findIndex(s => s.toLowerCase() === currentSegment.toLowerCase());
+    if (activeStopIndex === -1) {
+      const boardIdx = stopsToUse.findIndex(s => s.toLowerCase() === fromStop.toLowerCase());
+      activeStopIndex = boardIdx !== -1 ? Math.min(boardIdx + 1, stopsToUse.length - 1) : 1;
+    }
+
+    const boardIndex = stopsToUse.findIndex(s => s.toLowerCase() === fromStop.toLowerCase());
+    const destIndex = stopsToUse.findIndex(s => s.toLowerCase() === toStop.toLowerCase());
 
     return (
       <div className="space-y-6">
@@ -804,42 +999,79 @@ export const PassengerPage: React.FC = () => {
           <h2 className="text-xl font-black uppercase tracking-tighter">Live Tracker</h2>
         </div>
 
-        <div className="bg-slate-900 h-96 relative border border-slate-800 flex items-center justify-center overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(16,185,129,0.15),rgba(255,255,255,0))]" />
+        <div className="bg-slate-950 p-6 border border-slate-800 relative overflow-hidden">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(13,42,93,0.25),rgba(255,255,255,0))]" />
           
-          <svg className="absolute inset-0 w-full h-full opacity-35" xmlns="http://www.w3.org/2000/svg">
-            <path d="M 0 100 Q 150 150 450 100" fill="none" stroke="gray" strokeWidth="6" strokeDasharray="5,5" />
-            <path d="M 0 200 L 450 200" fill="none" stroke="gray" strokeWidth="8" />
-            <path d="M 150 0 L 150 400" fill="none" stroke="gray" strokeWidth="6" strokeDasharray="5,5" />
-            <path d="M 300 0 L 300 400" fill="none" stroke="gray" strokeWidth="6" />
-          </svg>
-
-          <motion.div 
-            animate={{ scale: [1, 1.1, 1], y: [0, -3, 0] }}
-            transition={{ repeat: Infinity, duration: 2 }}
-            className="absolute z-10 flex flex-col items-center gap-1.5"
-            style={{ left: '45%', top: '48%' }}
-          >
-            <div className="bg-emerald-500 text-white p-2.5 rounded-full shadow-lg border-2 border-white shadow-emerald-500/50">
-              <Bus size={20} />
+          <div className="relative z-10 space-y-6">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Route Pipeline</span>
+              <span className="px-2 py-0.5 bg-[#D97F00]/20 border border-[#D97F00]/30 text-[#D97F00] text-[8px] font-black uppercase tracking-wider">
+                {selectedTrip?.buses?.registration_number || 'TN BUS'}
+              </span>
             </div>
-            <div className="bg-slate-800/90 text-white text-[8px] font-black px-2 py-0.5 border border-slate-700 whitespace-nowrap shadow-md uppercase tracking-wider">
-              {selectedTrip?.buses?.registration_number || 'TN BUS'}
+
+            <div className="relative pl-8 space-y-6">
+              <div className="absolute left-[15px] top-3 bottom-3 w-0.5 bg-slate-800" />
+              <div 
+                className="absolute left-[15px] top-3 w-0.5 bg-gradient-to-b from-[#D97F00] to-emerald-500 transition-all duration-500" 
+                style={{ 
+                  height: `${(activeStopIndex / Math.max(1, stopsToUse.length - 1)) * 100}%`,
+                  maxHeight: '94%'
+                }} 
+              />
+
+              {stopsToUse.map((stop, index) => {
+                const isCompleted = index < activeStopIndex;
+                const isActive = index === activeStopIndex;
+                const isBoarding = index === boardIndex;
+                const isDestination = index === destIndex;
+
+                return (
+                  <div key={stop + '-' + index} className="relative flex items-center gap-4">
+                    <div className="absolute -left-[25px] flex items-center justify-center">
+                      {isActive ? (
+                        <div className="relative flex items-center justify-center z-20">
+                          <span className="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-emerald-400 opacity-75" />
+                          <div className="w-8 h-8 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center text-white shadow-lg shadow-emerald-500/50">
+                            <Bus size={14} className="animate-pulse" />
+                          </div>
+                        </div>
+                      ) : isCompleted ? (
+                        <div className="w-4 h-4 rounded-full bg-[#D97F00] border border-white flex items-center justify-center text-white z-10 shadow-sm" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full bg-slate-800 border border-slate-700 z-10" />
+                      )}
+                    </div>
+
+                    <div className="flex-1 bg-slate-900/40 hover:bg-slate-900/70 border border-slate-800/40 p-4 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <p className={`text-xs font-black uppercase tracking-wide ${isActive ? 'text-emerald-400' : isCompleted ? 'text-slate-300' : 'text-slate-500'}`}>
+                          {stop}
+                        </p>
+                        {isActive && (
+                          <span className="text-[8px] text-emerald-400 font-extrabold uppercase tracking-widest flex items-center gap-1 mt-0.5">
+                            ● Current Position
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {isBoarding && (
+                          <span className="px-1.5 py-0.5 bg-[#0D2A5D] border border-blue-900/40 text-white text-[7px] font-black tracking-widest uppercase">
+                            Boarding
+                          </span>
+                        )}
+                        {isDestination && (
+                          <span className="px-1.5 py-0.5 bg-[#D97F00] border border-orange-900/40 text-white text-[7px] font-black tracking-widest uppercase animate-pulse">
+                            Destination
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          </motion.div>
-
-          <div className="absolute left-[15%] top-[25%] flex flex-col items-center gap-1">
-            <div className="w-3.5 h-3.5 bg-blue-500 rounded-full border border-white shadow-md shadow-blue-500/50" />
-            <span className="text-[7px] text-slate-400 font-bold uppercase tracking-wider">{fromStop}</span>
-          </div>
-
-          <div className="absolute left-[70%] top-[70%] flex flex-col items-center gap-1">
-            <div className="w-3.5 h-3.5 bg-rose-500 rounded-full border border-white shadow-md shadow-rose-500/50 animate-pulse" />
-            <span className="text-[7px] text-slate-400 font-bold uppercase tracking-wider">{toStop}</span>
-          </div>
-
-          <div className="absolute bottom-4 right-4 bg-slate-900/90 px-3 py-1.5 text-white border border-slate-800 text-[8px] font-bold tracking-widest uppercase">
-            SIMULATED COORDINATES: {currentLat.toFixed(4)}N, {currentLng.toFixed(4)}E
           </div>
         </div>
 
@@ -855,12 +1087,40 @@ export const PassengerPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
             <div>
-              <p className="text-[9px] text-slate-400 leading-none">DRIVER</p>
-              <p className="text-slate-800 font-black mt-1.5">{selectedTrip?.driver_name || 'M. Annadurai'}</p>
+              <p className="text-[9px] text-slate-400 leading-none">Allocated Driver</p>
+              {allocationLoading ? (
+                <div className="flex items-center gap-1 mt-1.5 text-slate-500 font-bold normal-case">
+                  <Loader2 size={10} className="animate-spin text-slate-400" />
+                  <span>Loading...</span>
+                </div>
+              ) : allocationError ? (
+                <p className="text-rose-600 font-bold mt-1.5 normal-case">{allocationError}</p>
+              ) : allocatedDriver ? (
+                <div className="mt-1.5 text-slate-800 font-black normal-case">
+                  <p className="text-slate-800 font-black">{allocatedDriver.name}</p>
+                  {allocatedDriver.phone && <p className="text-xs text-slate-500 font-bold mt-0.5">{allocatedDriver.phone}</p>}
+                </div>
+              ) : (
+                <p className="text-slate-500 font-bold mt-1.5 normal-case">Not Allocated</p>
+              )}
             </div>
             <div>
-              <p className="text-[9px] text-slate-400 leading-none">CONDUCTOR</p>
-              <p className="text-slate-800 font-black mt-1.5">{selectedTrip?.conductor_name || 'V. Pandian'}</p>
+              <p className="text-[9px] text-slate-400 leading-none">Allocated Conductor</p>
+              {allocationLoading ? (
+                <div className="flex items-center gap-1 mt-1.5 text-slate-500 font-bold normal-case">
+                  <Loader2 size={10} className="animate-spin text-slate-400" />
+                  <span>Loading...</span>
+                </div>
+              ) : allocationError ? (
+                <p className="text-rose-600 font-bold mt-1.5 normal-case">{allocationError}</p>
+              ) : allocatedConductor ? (
+                <div className="mt-1.5 text-slate-800 font-black normal-case">
+                  <p className="text-slate-800 font-black">{allocatedConductor.name}</p>
+                  {allocatedConductor.phone && <p className="text-xs text-slate-500 font-bold mt-0.5">{allocatedConductor.phone}</p>}
+                </div>
+              ) : (
+                <p className="text-slate-500 font-bold mt-1.5 normal-case">Not Allocated</p>
+              )}
             </div>
           </div>
         </div>
@@ -947,45 +1207,126 @@ export const PassengerPage: React.FC = () => {
         <h2 className="text-xl font-black uppercase tracking-tighter">{t('ui.recent_activity')}</h2>
         <span className="text-[10px] bg-slate-100 px-2.5 py-1 rounded-none font-bold text-slate-400 uppercase tracking-widest">History Log</span>
       </div>
+
+      <div className="flex border border-slate-200 bg-slate-50 p-1">
+        <button
+          onClick={() => setActivityTab('BOOKINGS')}
+          className={`flex-1 py-2 text-center text-xs font-black uppercase tracking-widest transition-all ${
+            activityTab === 'BOOKINGS'
+              ? 'bg-slate-900 text-white shadow-md'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          Bookings
+        </button>
+        <button
+          onClick={() => setActivityTab('SOS')}
+          className={`flex-1 py-2 text-center text-xs font-black uppercase tracking-widest transition-all ${
+            activityTab === 'SOS'
+              ? 'bg-red-650 text-white shadow-md'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          SOS Alerts ({sosAlerts.length})
+        </button>
+      </div>
       
       <div className="space-y-4">
-        {tickets.map((tkt) => (
-          <button 
-            key={tkt.id} 
-            onClick={() => {
-              setSelectedTicket(tkt);
-              setCurrentView('TICKET');
-            }}
-            className="w-full bg-white p-4 border border-slate-200 flex items-center justify-between text-left hover:border-emerald-500 transition-colors shadow-sm"
-          >
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <span className="px-2 py-0.5 bg-emerald-600 text-white text-[8px] font-black rounded-none shadow-sm uppercase tracking-wider">BUS</span>
-                <span className="text-[9px] text-slate-400 font-bold uppercase">{tkt.id}</span>
-              </div>
-              <p className="text-sm font-black text-slate-900 tracking-tight leading-none uppercase">{tkt.from_stop} → {tkt.to_stop}</p>
-              <div className="flex items-center gap-3 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                <Clock size={12} className="text-emerald-500" />
-                {tkt.date}
-              </div>
-            </div>
-            <div className="text-right shrink-0">
-              <span className="text-[9px] text-emerald-600 font-black bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-none uppercase">CONFIRMED</span>
-              <p className="text-xs font-black text-slate-700 mt-1.5">₹{tkt.fare}</p>
-            </div>
-          </button>
-        ))}
+        {activityTab === 'BOOKINGS' ? (
+          <>
+            {tickets.map((tkt) => (
+              <button 
+                key={tkt.id} 
+                onClick={() => {
+                  setSelectedTicket(tkt);
+                  setCurrentView('TICKET');
+                }}
+                className="w-full bg-white p-4 border border-slate-200 flex items-center justify-between text-left hover:border-emerald-500 transition-colors shadow-sm"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className="px-2 py-0.5 bg-emerald-600 text-white text-[8px] font-black rounded-none shadow-sm uppercase tracking-wider">BUS</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase">{tkt.id}</span>
+                  </div>
+                  <p className="text-sm font-black text-slate-900 tracking-tight leading-none uppercase">{tkt.from_stop} → {tkt.to_stop}</p>
+                  <div className="flex items-center gap-3 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                    <Clock size={12} className="text-emerald-500" />
+                    {tkt.date}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-[9px] text-emerald-600 font-black bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-none uppercase">CONFIRMED</span>
+                  <p className="text-xs font-black text-slate-700 mt-1.5">₹{tkt.fare}</p>
+                </div>
+              </button>
+            ))}
 
-        {tickets.length === 0 && (
-          <div className="py-20 text-center space-y-4 bg-white border border-slate-100">
-            <div className="w-16 h-16 bg-slate-50 rounded-none flex items-center justify-center mx-auto text-slate-300">
-              <ActivityInfoIcon size={32} className="text-slate-400" />
-            </div>
-            <div>
-              <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">No booking activity logged yet</p>
-              <p className="text-[10px] text-slate-300 font-bold uppercase mt-1">Book your first bus ticket!</p>
-            </div>
-          </div>
+            {tickets.length === 0 && (
+              <div className="py-20 text-center space-y-4 bg-white border border-slate-100">
+                <div className="w-16 h-16 bg-slate-50 rounded-none flex items-center justify-center mx-auto text-slate-300">
+                  <ActivityInfoIcon size={32} className="text-slate-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">No booking activity logged yet</p>
+                  <p className="text-[10px] text-slate-300 font-bold uppercase mt-1">Book your first bus ticket!</p>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {sosAlerts.map((alert) => (
+              <div 
+                key={alert.id} 
+                className="w-full bg-white p-4 border border-red-200 flex flex-col gap-3 shadow-sm hover:shadow-md transition-all"
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-red-650 text-white text-[8px] font-black uppercase tracking-wider">SOS ALERT</span>
+                    <span className="text-[9px] text-slate-400 font-black">ID: #{alert.id}</span>
+                  </div>
+                  <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                    alert.status === 'PENDING' ? 'bg-red-100 text-red-700' :
+                    alert.status === 'RESOLVED' ? 'bg-emerald-100 text-emerald-700' :
+                    'bg-slate-100 text-slate-600'
+                  }`}>
+                    {alert.status}
+                  </span>
+                </div>
+
+                <p className="text-xs font-bold text-slate-900 leading-normal">{alert.message}</p>
+
+                <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                  <div className="flex items-center gap-1.5 text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                    <Clock size={12} className="text-red-500" />
+                    {new Date(alert.created_at).toLocaleString()}
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setActiveSosAlertId(alert.id);
+                      setIsSosChatOpen(true);
+                    }}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-[9px] uppercase tracking-widest flex items-center gap-1 transition-all"
+                  >
+                    <MessageSquare size={10} />
+                    Open Live Chat
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {sosAlerts.length === 0 && (
+              <div className="py-20 text-center space-y-4 bg-white border border-slate-100">
+                <div className="w-16 h-16 bg-slate-50 rounded-none flex items-center justify-center mx-auto text-slate-350">
+                  <ShieldAlert size={32} className="text-slate-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">No SOS alerts triggered yet</p>
+                  <p className="text-[10px] text-slate-300 font-bold uppercase mt-1">Your emergency logs will appear here</p>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -1072,7 +1413,7 @@ export const PassengerPage: React.FC = () => {
                   </div>
                   <div className="text-center w-full">
                     <h2 className="text-xl font-black uppercase tracking-tighter leading-none mb-2">PASSENGER</h2>
-                    <p className="text-[10px] font-bold opacity-70 tracking-[0.2em]">Nigazhthisai Citizen</p>
+                    <p className="text-[10px] font-bold opacity-70 tracking-[0.2em]">{userName}</p>
                   </div>
                 </div>
                 <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#fff 1.5px, transparent 1.5px)', backgroundSize: '16px 16px' }} />
@@ -1404,6 +1745,115 @@ export const PassengerPage: React.FC = () => {
                   </div>
                 )}
               </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Floating SOS Support Desk Indicator */}
+      {activeSosAlertId && !isSosChatOpen && (
+        <button 
+          onClick={() => setIsSosChatOpen(true)}
+          className="fixed bottom-24 left-6 z-40 bg-red-650 text-white px-3 py-2 rounded-full font-black text-[9px] shadow-2xl flex items-center gap-1.5 border border-red-500 hover:scale-105 transition-all animate-bounce uppercase tracking-wider"
+        >
+          <MessageSquare size={12} />
+          SOS Live Chat Active
+        </button>
+      )}
+
+      {/* SOS Citizen Live Chat Drawer */}
+      <AnimatePresence>
+        {isSosChatOpen && activeSosAlertId && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSosChatOpen(false)}
+              className="fixed inset-0 bg-slate-900/60 z-[90] backdrop-blur-sm"
+            />
+            
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+              className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white z-[100] rounded-t-xl overflow-hidden flex flex-col h-[75vh] shadow-[0_-20px_50px_rgba(0,0,0,0.15)] border-t-2 border-red-500"
+            >
+              {/* Header */}
+              <div className="bg-red-650 p-5 text-white flex items-center justify-between sticky top-0 z-10 shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-md">
+                    <ShieldAlert size={20} className="animate-pulse" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-black uppercase tracking-tight leading-none">SOS Emergency Desk</h2>
+                    <p className="text-[9px] text-white/80 font-black uppercase tracking-widest mt-1">
+                      Direct Support Channel • Live
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsSosChatOpen(false)}
+                  className="w-10 h-10 bg-white/10 text-white rounded-full flex items-center justify-center hover:bg-white/20 transition-all border border-white/10"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Chat Thread */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50 no-scrollbar">
+                <div className="bg-red-50 border border-red-200 p-4 text-xs text-red-950 font-bold leading-normal text-center space-y-1">
+                  <p className="font-black text-sm uppercase tracking-tight text-red-700">Emergency Alert Active</p>
+                  <p>Your coordinates and trip details have been broadcasted to the district authorities. Speak directly with dispatcher below.</p>
+                </div>
+
+                <div className="space-y-4 pt-2">
+                  {sosMessages.length === 0 ? (
+                    <div className="py-12 text-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                      Connecting with dispatcher...
+                    </div>
+                  ) : (
+                    sosMessages.map((msg) => {
+                      const isMe = msg.sender_role === 'SYSTEM'; // Citizen role maps to SYSTEM
+                      return (
+                        <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 px-1">
+                            {msg.sender_name} ({msg.sender_role === 'ADMIN' ? 'Support Desk' : 'You'})
+                          </span>
+                          <div className={`max-w-[85%] px-4 py-2.5 shadow-sm text-xs font-semibold leading-relaxed ${
+                            isMe 
+                              ? 'bg-slate-900 text-white rounded-l-md rounded-br-md' 
+                              : 'bg-white text-slate-800 border border-slate-200 rounded-r-md rounded-bl-md'
+                          }`}>
+                            {msg.message}
+                          </div>
+                          <span className="text-[8px] text-slate-400 font-bold mt-1 px-1">
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Send Box */}
+              <form onSubmit={handleSendSosMessage} className="p-4 border-t border-slate-100 bg-white flex items-center gap-3">
+                <input 
+                  type="text"
+                  placeholder="Tell us what is happening..."
+                  value={newSosMessageText}
+                  onChange={(e) => setNewSosMessageText(e.target.value)}
+                  className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 text-xs font-semibold rounded-none"
+                />
+                <button
+                  type="submit"
+                  className="p-3 bg-red-600 hover:bg-red-700 text-white transition-all flex items-center justify-center"
+                >
+                  <Send size={16} />
+                </button>
+              </form>
             </motion.div>
           </>
         )}

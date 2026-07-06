@@ -35,6 +35,7 @@ import { useTranslation } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 import { conductorApi, adminApi } from '../lib/api';
 import { eraseCookie } from '../utils/cookies';
+import { NigazhthisaiIcon } from '../components/NigazhthisaiLogo';
 
 // Real-world bus fleet for Nigazhthisai
 const BUS_FLEET = [
@@ -142,6 +143,14 @@ export const ConductorPage: React.FC = () => {
   // Resolve current active bus & stops
   const activeBus = (buses.length > 0 ? buses : BUS_FLEET).find(b => b.bus_id === activeBusId);
   const activeBusStops = activeBus ? activeBus.stops : [];
+
+  // Pre-fill boarding/destination stops when stops are loaded or changed
+  useEffect(() => {
+    if (activeBusStops && activeBusStops.length >= 2) {
+      if (!boardingStop) setBoardingStop(activeBusStops[0]);
+      if (!destinationStop) setDestinationStop(activeBusStops[1]);
+    }
+  }, [activeBusStops, boardingStop, destinationStop]);
 
   // Determine initial view based on saved credentials
   useEffect(() => {
@@ -595,8 +604,8 @@ export const ConductorPage: React.FC = () => {
       <header className="bg-gradient-to-r from-[#0D2A5D] to-[#0a2149] text-white py-5 px-5 shadow-lg shrink-0 sticky top-0 z-40">
         <div className="max-w-md mx-auto flex justify-between items-center w-full">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-[#D97F00] rounded-xl text-white shadow-md flex items-center justify-center">
-              <BusIcon size={22} className="animate-pulse" />
+            <div className="shrink-0">
+              <NigazhthisaiIcon size={38} className="rounded-xl" />
             </div>
             <div>
               <h1 className="text-lg font-black uppercase tracking-tight leading-none flex items-center gap-2">

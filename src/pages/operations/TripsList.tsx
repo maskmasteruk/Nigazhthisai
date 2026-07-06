@@ -18,6 +18,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { adminApi } from '../../lib/api';
 import { toast } from 'sonner';
+import { supabase } from '../../lib/supabase';
 
 export const TripsList: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -68,8 +69,28 @@ export const TripsList: React.FC = () => {
       setRoutes(routesData);
       setBuses(busesData);
 
-      const activeDrivers = usersData.filter((u: any) => u.role === 'DRIVER' && u.status === 'ACTIVE');
-      const activeConductors = usersData.filter((u: any) => u.role === 'CONDUCTOR' && u.status === 'ACTIVE');
+      const activeDrivers = (usersData || []).filter((u: any) => {
+        const role = (u.role || u.raw_user_meta_data?.role || u.user_metadata?.role || '').toUpperCase();
+        const status = (u.status || u.raw_user_meta_data?.status || u.user_metadata?.status || 'ACTIVE').toUpperCase();
+        let isDriver = false;
+        if (role === 'DRIVER') {
+          isDriver = true;
+        } else if (role === '' || role === 'PASSENGER') {
+          isDriver = !!(u.email && u.email.toLowerCase().includes('driver'));
+        }
+        return isDriver && status === 'ACTIVE';
+      });
+      const activeConductors = (usersData || []).filter((u: any) => {
+        const role = (u.role || u.raw_user_meta_data?.role || u.user_metadata?.role || '').toUpperCase();
+        const status = (u.status || u.raw_user_meta_data?.status || u.user_metadata?.status || 'ACTIVE').toUpperCase();
+        let isConductor = false;
+        if (role === 'CONDUCTOR') {
+          isConductor = true;
+        } else if (role === '' || role === 'PASSENGER') {
+          isConductor = !!(u.email && u.email.toLowerCase().includes('conductor'));
+        }
+        return isConductor && status === 'ACTIVE';
+      });
       setDrivers(activeDrivers);
       setConductors(activeConductors);
     } catch (error) {
@@ -78,6 +99,24 @@ export const TripsList: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const fetchAdminMetadata = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && !isMaster) {
+        const meta = user.user_metadata || {};
+        if (meta.district) {
+          const match = DISTRICTS.find(d => d.toLowerCase() === meta.district.toLowerCase());
+          if (match) setSelectedDistrict(match);
+        }
+        if (meta.zone) {
+          const match = ZONES.find(z => z.toLowerCase() === meta.zone.toLowerCase());
+          if (match) setSelectedZone(match);
+        }
+      }
+    };
+    fetchAdminMetadata();
+  }, [userRole]);
 
   useEffect(() => {
     fetchData();
@@ -147,14 +186,19 @@ export const TripsList: React.FC = () => {
   };
 
   const filteredTrips = trips.filter(trip => {
-    const route = routes.find(r => r.id.toString() === trip.route_id.toString());
-    const matchesSearch = trip.driver_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         trip.conductor_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         (route && (route.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                                   route.code.toLowerCase().includes(searchQuery.toLowerCase())));
+    const route = (trip.route_id && routes) ? routes.find(r => r.id?.toString() === trip.route_id.toString()) : null;
+    const driverName = trip.driver_name || '';
+    const conductorName = trip.conductor_name || '';
     
-    const matchesDistrict = selectedDistrict === 'All' || trip.district === selectedDistrict;
-    const matchesZone = selectedZone === 'All' || trip.zone === selectedZone;
+    const matchesSearch = driverName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         conductorName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         (route && ((route.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                   (route.code || '').toLowerCase().includes(searchQuery.toLowerCase())));
+    
+    const matchesDistrict = selectedDistrict === 'All' || 
+      (trip.district && trip.district.toLowerCase() === selectedDistrict.toLowerCase());
+    const matchesZone = selectedZone === 'All' || 
+      (trip.zone && trip.zone.toLowerCase() === selectedZone.toLowerCase());
     
     return matchesSearch && matchesDistrict && matchesZone;
   });

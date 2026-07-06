@@ -4,8 +4,8 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  
-  --color-primary: #0D2A5D; /* Deep Blue */
+   
+  --color-primary: orangered;
   --color-primary-light: #153e84; 
   --color-accent: #D97F00; /* Warm Orange */
   --color-accent-light: #f79d20;

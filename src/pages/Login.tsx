@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bus, Lock, Mail, ArrowRight, Loader2, User } from 'lucide-react';
+import { Bus, Lock, Mail, ArrowRight, Loader2, User, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { adminApi, conductorApi } from '../lib/api';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { getCookie } from '../utils/cookies';
+import { NigazhthisaiIcon } from '../components/NigazhthisaiLogo';
 
 type LoginRole = 'MASTER_ADMIN' | 'ADMIN' | 'DRIVER' | 'CONDUCTOR' | 'PASSENGER';
 
@@ -36,6 +37,11 @@ export const LoginPage: React.FC = () => {
   const [name, setName] = useState('');
   const [registerPhone, setRegisterPhone] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    setShowPassword(false);
+  }, [mode]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -200,8 +206,8 @@ export const LoginPage: React.FC = () => {
         className="w-full max-w-lg bg-white p-12 shadow-2xl relative z-10"
       >
         <div className="flex flex-col items-center mb-12">
-          <div className="w-16 h-16 bg-primary flex items-center justify-center mb-6 shadow-xl shadow-primary/20">
-            <Bus size={32} className="text-white" />
+          <div className="mb-6">
+            <NigazhthisaiIcon size={64} />
           </div>
           <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">
             Nigazhthisai <span className="text-primary">
@@ -272,13 +278,20 @@ export const LoginPage: React.FC = () => {
                   <Lock size={18} />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/5 outline-none transition-all font-medium text-slate-900"
+                  className="w-full pl-12 pr-12 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/5 outline-none transition-all font-medium text-slate-900"
                   placeholder="••••••••"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
@@ -342,13 +355,20 @@ export const LoginPage: React.FC = () => {
                   <Lock size={18} />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/5 outline-none transition-all font-medium text-slate-900"
+                  className="w-full pl-12 pr-12 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/5 outline-none transition-all font-medium text-slate-900"
                   placeholder="••••••••"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
@@ -431,13 +451,20 @@ export const LoginPage: React.FC = () => {
                   <Lock size={18} />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/5 outline-none transition-all font-medium text-slate-900"
+                  className="w-full pl-12 pr-12 py-4 bg-slate-50 border border-slate-100 focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/5 outline-none transition-all font-medium text-slate-900"
                   placeholder="••••••••"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 

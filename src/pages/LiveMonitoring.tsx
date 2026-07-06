@@ -38,8 +38,14 @@ export const LiveMonitoring: React.FC = () => {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user?.user_metadata) {
           const meta = session.user.user_metadata;
-          if (meta.district) setSelectedDistrict(meta.district);
-          if (meta.zone) setSelectedZone(meta.zone);
+          if (meta.district) {
+            const match = DISTRICTS.find(d => d.toLowerCase() === meta.district.toLowerCase());
+            if (match) setSelectedDistrict(match);
+          }
+          if (meta.zone) {
+            const match = ZONES.find(z => z.toLowerCase() === meta.zone.toLowerCase());
+            if (match) setSelectedZone(match);
+          }
         }
       }
     };
@@ -180,41 +186,80 @@ export const LiveMonitoring: React.FC = () => {
         <div className="flex-1 bg-white border border-slate-200 relative overflow-hidden">
           {selectedTrip ? (
             <div className="absolute inset-0 flex flex-col">
-              {/* Live Map Placeholder */}
-              <div className="flex-1 bg-slate-100 relative overflow-hidden">
-                <div className="absolute inset-0 opacity-20" 
-                     style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
+              {/* Live Pipeline Tracker */}
+              {(() => {
+                const routeStops: string[] = selectedTrip?.stops || [];
+                const stopsToUse = routeStops.length > 0 ? routeStops : ['Origin Stop', 'Stop A', 'Stop B', 'Stop C', 'Destination Stop'];
                 
-                {/* Animated Bus Marker */}
-                <motion.div 
-                  animate={{ 
-                    x: [100, 200, 150, 300],
-                    y: [100, 150, 250, 200]
-                  }}
-                  transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-                  className="absolute w-12 h-12 bg-primary rounded-full flex items-center justify-center text-white shadow-2xl border-4 border-white z-10"
-                >
-                  <BusIcon size={24} />
-                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-3 py-1 rounded-full text-[10px] font-black whitespace-nowrap shadow-lg">
-                    {selectedTrip.bus_id}
+                const currentSegment = selectedTrip?.current_segment || '';
+                let activeStopIndex = stopsToUse.findIndex(s => s.toLowerCase() === currentSegment.toLowerCase());
+                if (activeStopIndex === -1) {
+                  activeStopIndex = 1;
+                }
+
+                return (
+                  <div className="flex-1 bg-slate-950 p-8 relative overflow-y-auto no-scrollbar border-b border-slate-200">
+                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(13,42,93,0.25),rgba(255,255,255,0))]" />
+                    
+                    <div className="relative z-10 space-y-6 max-w-lg mx-auto">
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Live Route Pipeline</span>
+                        <span className="px-2.5 py-1 bg-primary/20 border border-primary/30 text-primary text-[9px] font-black uppercase tracking-wider">
+                          Bus: {selectedTrip.bus_id} ({selectedTrip.status})
+                        </span>
+                      </div>
+
+                      <div className="relative pl-8 space-y-8">
+                        <div className="absolute left-[15px] top-3 bottom-3 w-0.5 bg-slate-800" />
+                        <div 
+                          className="absolute left-[15px] top-3 w-0.5 bg-gradient-to-b from-[#D97F00] to-emerald-500 transition-all duration-500" 
+                          style={{ 
+                            height: `${(activeStopIndex / Math.max(1, stopsToUse.length - 1)) * 100}%`,
+                            maxHeight: '94%'
+                          }} 
+                        />
+
+                        {stopsToUse.map((stop, index) => {
+                          const isCompleted = index < activeStopIndex;
+                          const isActive = index === activeStopIndex;
+
+                          return (
+                            <div key={stop + '-' + index} className="relative flex items-center gap-4">
+                              <div className="absolute -left-[25px] flex items-center justify-center">
+                                {isActive ? (
+                                  <div className="relative flex items-center justify-center z-20">
+                                    <span className="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-emerald-400 opacity-75" />
+                                    <div className="w-8 h-8 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center text-white shadow-lg shadow-emerald-500/50">
+                                      <BusIcon size={14} className="animate-pulse" />
+                                    </div>
+                                  </div>
+                                ) : isCompleted ? (
+                                  <div className="w-4 h-4 rounded-full bg-[#D97F00] border border-white flex items-center justify-center text-white z-10 shadow-sm" />
+                                ) : (
+                                  <div className="w-4 h-4 rounded-full bg-slate-800 border border-slate-700 z-10" />
+                                )}
+                              </div>
+
+                              <div className="flex-1 bg-slate-900/40 hover:bg-slate-900/70 border border-slate-800/40 p-4 transition-all flex items-center justify-between gap-2">
+                                <div>
+                                  <p className={`text-xs font-black uppercase tracking-wide ${isActive ? 'text-emerald-400' : isCompleted ? 'text-slate-350' : 'text-slate-500'}`}>
+                                    {stop}
+                                  </p>
+                                  {isActive && (
+                                    <span className="text-[8px] text-emerald-400 font-extrabold uppercase tracking-widest flex items-center gap-1 mt-0.5">
+                                      ● Current Location
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
-                </motion.div>
-
-                {/* Route Path */}
-                <svg className="absolute inset-0 w-full h-full opacity-10">
-                  <path d="M 50,50 L 200,150 L 400,100 L 600,300" stroke="black" strokeWidth="8" fill="none" strokeLinecap="round" />
-                </svg>
-
-                {/* Map Controls */}
-                <div className="absolute bottom-6 right-6 flex flex-col gap-2">
-                  <button className="w-10 h-10 bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 shadow-lg">
-                    <Plus size={20} />
-                  </button>
-                  <button className="w-10 h-10 bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 shadow-lg">
-                    <X size={20} />
-                  </button>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Trip Details Bar */}
               <div className="h-24 border-t border-slate-200 flex items-center px-8 gap-12 bg-white">

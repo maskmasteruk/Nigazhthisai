@@ -26,6 +26,7 @@ import { useTranslation } from '../../lib/i18n';
 import { isFeatureEnabled } from '../../lib/featureFlags';
 import { supabase } from '../../lib/supabase';
 import { eraseCookie } from '../../utils/cookies';
+import { NigazhthisaiIcon } from '../NigazhthisaiLogo';
 
 const MENU_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
@@ -97,8 +98,8 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
       >
         {/* Logo Section */}
         <div className="h-16 flex items-center px-6 border-b border-white/10 overflow-hidden">
-          <div className="w-8 h-8 bg-primary flex items-center justify-center shrink-0">
-            <Bus size={20} className="text-white" />
+          <div className="shrink-0">
+            <NigazhthisaiIcon size={32} />
           </div>
           {isSidebarOpen && (
             <span className="ml-3 font-black uppercase tracking-tighter text-lg whitespace-nowrap">

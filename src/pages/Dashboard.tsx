@@ -306,17 +306,13 @@ export const Dashboard: React.FC = () => {
                       <Clock size={12} />
                       {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </div>
-                    {alert.type === 'IDLE_BUS' ? (
-                      <button 
-                        onClick={() => navigate('/operations/alerts')}
-                        className="text-xs font-black text-rose-600 uppercase tracking-widest hover:underline flex items-center gap-1"
-                      >
-                         {t('alerts.investigate')}
-                         <ArrowUpRight size={12} />
-                      </button>
-                    ) : (
-                      <button className="text-xs font-black text-primary uppercase tracking-widest hover:underline">Investigate</button>
-                    )}
+                    <button 
+                      onClick={() => navigate(`/operations/alerts?chatAlertId=${alert.id}`)}
+                      className="text-xs font-black text-rose-600 uppercase tracking-widest hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                       {t('alerts.investigate')}
+                       <ArrowUpRight size={12} />
+                    </button>
                   </div>
                 </div>
               </div>

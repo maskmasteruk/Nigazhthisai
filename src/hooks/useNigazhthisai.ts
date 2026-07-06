@@ -24,17 +24,18 @@ export const useNigazhthisai = (userId: string | null) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 1. Trigger SOS
-  const triggerSOS = async (lat: number, lng: number) => {
+  const triggerSOS = async (lat: number, lng: number): Promise<number | undefined> => {
     if (!userId) return;
     try {
-      await NigazhthisaiService.triggerSOS(userId, lat, lng);
+      const alertId = await NigazhthisaiService.triggerSOS(userId, lat, lng);
       toast.error('Emergency SOS Sent! Local authorities have been notified.', {
         duration: 8000
       });
+      return alertId;
     } catch (e: any) {
       console.error(e);
       setError(e.message);
+      return undefined;
     }
   };
 
