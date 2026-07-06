@@ -241,6 +241,12 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } />
 
+          <Route path="/sos" element={
+            <ProtectedRoute useLayout={false}>
+              <PassengerPage initialView="SOS_HISTORY" />
+            </ProtectedRoute>
+          } />
+
           <Route path="/driver" element={
             <ProtectedRoute useLayout={false}>
               <DriverPage />

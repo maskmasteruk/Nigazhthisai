@@ -299,6 +299,9 @@ create policy "Admins read and acknowledge alerts" on public.alerts for all usin
 create policy "Conductors create alerts" on public.alerts for insert with check (
   (auth.jwt() -> 'user_metadata' ->> 'role') = 'CONDUCTOR'
 );
+create policy "Passengers read own alerts" on public.alerts for select using (
+  user_id = auth.uid() or user_id = '00000000-0000-0000-0000-000000000000'
+);
 
 -- SHOPS
 create policy "Read shops" on public.shops for select using (true);

@@ -47,7 +47,8 @@ type View =
   | 'TRACKING' 
   | 'BOOKING' 
   | 'TICKET' 
-  | 'COMPLAINT';
+  | 'COMPLAINT'
+  | 'SOS_HISTORY';
 
 const TAMIL_NADU_DISTRICTS = [
   'Ariyalur', 'Chengalpattu', 'Chennai', 'Coimbatore', 'Cuddalore', 'Dharmapuri', 
@@ -170,10 +171,14 @@ const LiveOccupancyProgressBar: React.FC<{ occupancy: number; max?: number }> = 
   );
 };
 
-export const PassengerPage: React.FC = () => {
+interface PassengerPageProps {
+  initialView?: View;
+}
+
+export const PassengerPage: React.FC<PassengerPageProps> = ({ initialView }) => {
   const { t, language, setLanguage } = useTranslation();
-  const [showSplash, setShowSplash] = useState(true);
-  const [currentView, setCurrentView] = useState<View>('HOME');
+  const [showSplash, setShowSplash] = useState(initialView ? false : true);
+  const [currentView, setCurrentView] = useState<View>(initialView === 'SOS_HISTORY' ? 'ACTIVITY' : (initialView || 'HOME'));
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDistrictModalOpen, setIsDistrictModalOpen] = useState(false);
   const [isStopModalOpen, setIsStopModalOpen] = useState(false);
@@ -263,10 +268,10 @@ export const PassengerPage: React.FC = () => {
 
   const [sosAlerts, setSosAlerts] = useState<any[]>([]);
   const [isLoadingSosAlerts, setIsLoadingSosAlerts] = useState(false);
-  const [activityTab, setActivityTab] = useState<'BOOKINGS' | 'SOS'>('BOOKINGS');
+  const [activityTab, setActivityTab] = useState<'BOOKINGS' | 'SOS'>(initialView === 'SOS_HISTORY' ? 'SOS' : 'BOOKINGS');
 
-  const fetchPassengerSosAlerts = async (uid: string) => {
-    if (!uid || uid === '00000000-0000-0000-0000-000000000000') return;
+  const fetchPassengerSosAlerts = async (uid: string, autoResume = false) => {
+    if (!uid) return;
     try {
       setIsLoadingSosAlerts(true);
       const { data, error } = await supabase
@@ -277,6 +282,16 @@ export const PassengerPage: React.FC = () => {
         .order('created_at', { ascending: false });
       if (!error && data) {
         setSosAlerts(data);
+        
+        if (autoResume) {
+          const activeAlert = data.find((alert: any) => 
+            alert.status === 'PENDING' || alert.status === 'ACKNOWLEDGED'
+          );
+          if (activeAlert) {
+            setActiveSosAlertId(activeAlert.id);
+            setIsSosChatOpen(true);
+          }
+        }
       }
     } catch (err) {
       console.error(err);
@@ -363,7 +378,7 @@ export const PassengerPage: React.FC = () => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         setUserId(user.id);
-        fetchPassengerSosAlerts(user.id);
+        fetchPassengerSosAlerts(user.id, true);
         if (user.user_metadata?.name) {
           setUserName(user.user_metadata.name);
         }
@@ -636,6 +651,21 @@ export const PassengerPage: React.FC = () => {
   };
 
   const triggerSOSAlert = () => {
+    const hasActiveSOS = (sosAlerts || []).some((alert: any) => 
+      alert.status === 'PENDING' || alert.status === 'ACKNOWLEDGED'
+    );
+    if (hasActiveSOS) {
+      toast.warning('An active SOS emergency is already running. Please use the open chat to communicate.');
+      const activeAlert = (sosAlerts || []).find((alert: any) => 
+        alert.status === 'PENDING' || alert.status === 'ACKNOWLEDGED'
+      );
+      if (activeAlert) {
+        setActiveSosAlertId(activeAlert.id);
+        setIsSosChatOpen(true);
+      }
+      return;
+    }
+
     setSosActive(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -1223,7 +1253,7 @@ export const PassengerPage: React.FC = () => {
           onClick={() => setActivityTab('SOS')}
           className={`flex-1 py-2 text-center text-xs font-black uppercase tracking-widest transition-all ${
             activityTab === 'SOS'
-              ? 'bg-red-650 text-white shadow-md'
+              ? 'bg-red-600 text-white shadow-md'
               : 'text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -1282,7 +1312,7 @@ export const PassengerPage: React.FC = () => {
               >
                 <div className="flex justify-between items-start">
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 bg-red-650 text-white text-[8px] font-black uppercase tracking-wider">SOS ALERT</span>
+                    <span className="px-2 py-0.5 bg-red-600 text-white text-[8px] font-black uppercase tracking-wider">SOS ALERT</span>
                     <span className="text-[9px] text-slate-400 font-black">ID: #{alert.id}</span>
                   </div>
                   <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
@@ -1567,6 +1597,54 @@ export const PassengerPage: React.FC = () => {
         </button>
       </header>
 
+      {/* Persistent SOS Emergency Banner */}
+      {(() => {
+        const activeUnresolvedAlert = (sosAlerts || []).find((alert: any) => 
+          alert.status === 'PENDING' || alert.status === 'ACKNOWLEDGED'
+        );
+        if (!activeUnresolvedAlert) return null;
+        return (
+          <div className="bg-rose-600 text-white px-6 py-3 flex items-center justify-between border-b border-rose-500 shadow-md">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
+              <span className="text-[10px] font-black uppercase tracking-widest">
+                Live SOS Active (ID: #{activeUnresolvedAlert.id})
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setActiveSosAlertId(activeUnresolvedAlert.id);
+                  setIsSosChatOpen(true);
+                }}
+                className="bg-white text-rose-600 hover:bg-slate-50 font-black text-[9px] uppercase tracking-widest px-3 py-1.5 transition-all shadow-sm rounded-none"
+              >
+                Open Chat
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const { error } = await supabase
+                      .from('alerts')
+                      .update({ status: 'RESOLVED' })
+                      .eq('id', activeUnresolvedAlert.id);
+                    if (!error) {
+                      toast.success('Emergency alert resolved successfully.');
+                      fetchPassengerSosAlerts(userId);
+                    }
+                  } catch (err) {
+                    toast.error('Failed to resolve alert');
+                  }
+                }}
+                className="bg-rose-800 text-white hover:bg-rose-900 border border-rose-700 font-black text-[9px] uppercase tracking-widest px-3 py-1.5 transition-all rounded-none"
+              >
+                Resolve
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Main Content Area */}
       <main className="flex-1 p-6 overflow-y-auto no-scrollbar pb-24">
         {currentView === 'HOME' && <DashboardView />}
@@ -1754,7 +1832,7 @@ export const PassengerPage: React.FC = () => {
       {activeSosAlertId && !isSosChatOpen && (
         <button 
           onClick={() => setIsSosChatOpen(true)}
-          className="fixed bottom-24 left-6 z-40 bg-red-650 text-white px-3 py-2 rounded-full font-black text-[9px] shadow-2xl flex items-center gap-1.5 border border-red-500 hover:scale-105 transition-all animate-bounce uppercase tracking-wider"
+          className="fixed text-red-500 bottom-24 left-6 z-40 bg-red-50 px-3 py-2 rounded-full font-black text-[9px] shadow-2xl flex items-center gap-1.5 border border-red-500 hover:scale-105 transition-all animate-bounce uppercase tracking-wider"
         >
           <MessageSquare size={12} />
           SOS Live Chat Active
@@ -1781,7 +1859,7 @@ export const PassengerPage: React.FC = () => {
               className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white z-[100] rounded-t-xl overflow-hidden flex flex-col h-[75vh] shadow-[0_-20px_50px_rgba(0,0,0,0.15)] border-t-2 border-red-500"
             >
               {/* Header */}
-              <div className="bg-red-650 p-5 text-white flex items-center justify-between sticky top-0 z-10 shadow-lg">
+              <div className="bg-red-600 p-5 text-white flex items-center justify-between sticky top-0 z-10 shadow-lg">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-md">
                     <ShieldAlert size={20} className="animate-pulse" />
