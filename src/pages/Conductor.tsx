@@ -53,7 +53,7 @@ export const ConductorPage: React.FC = () => {
   const [currentView, setCurrentView] = useState<string>('LOGIN');
 
   // Conductor authentication & session states
-  const [jwt, setJwt] = useState<string | null>(() => localStorage.getItem('conductor_jwt'));
+  const [jwt, setJwt] = useState<string | null>(() => localStorage.getItem('conductor_jwt') || localStorage.getItem('admin_token'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -74,6 +74,19 @@ export const ConductorPage: React.FC = () => {
   const [activeTripId, setActiveTripId] = useState<string | null>(() => localStorage.getItem('conductor_trip_id'));
   const [activeRouteName, setActiveRouteName] = useState<string | null>(() => localStorage.getItem('conductor_route_name'));
   const [activeNumberPlate, setActiveNumberPlate] = useState<string | null>(() => localStorage.getItem('conductor_number_plate'));
+
+  // Scheduled trips self-allocation states
+  const [scheduledTrips, setScheduledTrips] = useState<any[]>([]);
+  const [loadingTrips, setLoadingTrips] = useState(false);
+  const [selectedTripId, setSelectedTripId] = useState<string>('');
+
+  // Geo-tiling states
+  const [allStopsWithCoords, setAllStopsWithCoords] = useState<any[]>([]);
+  const [hasAutoFilledNearest, setHasAutoFilledNearest] = useState(false);
+
+  // Bus Camera QR Scan states
+  const [isBusCameraActive, setIsBusCameraActive] = useState(false);
+  const [busHtml5QrCode, setBusHtml5QrCode] = useState<Html5Qrcode | null>(null);
 
   // Tickets list & stats
   const [ticketsToday, setTicketsToday] = useState<any[]>(() => {
@@ -143,6 +156,173 @@ export const ConductorPage: React.FC = () => {
   // Resolve current active bus & stops
   const activeBus = (buses.length > 0 ? buses : BUS_FLEET).find(b => b.bus_id === activeBusId);
   const activeBusStops = activeBus ? activeBus.stops : [];
+
+  // Fetch scheduled trips for selected bus
+  useEffect(() => {
+    const fetchScheduledTrips = async () => {
+      if (!activeBusId) return;
+      setLoadingTrips(true);
+      try {
+        const { data, error } = await supabase
+          .from('trips')
+          .select('*, routes(name, stops)')
+          .eq('bus_id', activeBusId)
+          .in('status', ['SCHEDULED', 'PLANNED']);
+        if (!error && data) {
+          setScheduledTrips(data);
+        } else {
+          setScheduledTrips([]);
+        }
+      } catch (err) {
+        console.error('Error fetching scheduled trips:', err);
+        setScheduledTrips([]);
+      } finally {
+        setLoadingTrips(false);
+      }
+    };
+    fetchScheduledTrips();
+  }, [activeBusId]);
+
+  // Fetch logged in profile metadata to default Conductor ID
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!jwt) return;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const emailPrefix = user.email ? user.email.split('@')[0] : '';
+          const name = user.user_metadata?.name || user.user_metadata?.fullName || emailPrefix;
+          if (!localStorage.getItem('conductor_id') && name) {
+            setConductorIdInput(name.toUpperCase());
+          }
+        }
+      } catch (err) {
+        console.error('Failed to retrieve user metadata:', err);
+      }
+    };
+    fetchProfile();
+  }, [jwt]);
+
+  // Fetch stops with coordinates for geo-tiling
+  useEffect(() => {
+    const fetchStopsWithCoords = async () => {
+      try {
+        const { data, error } = await supabase.from('stops').select('*');
+        if (!error && data) {
+          setAllStopsWithCoords(data);
+        }
+      } catch (err) {
+        console.error('Failed to load stops coordinates:', err);
+      }
+    };
+    fetchStopsWithCoords();
+  }, []);
+
+  // Identify nearest stop on startup
+  useEffect(() => {
+    if (allStopsWithCoords.length === 0 || hasAutoFilledNearest || activeBusStops.length === 0) return;
+
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          let closestStop = null;
+          let minDistance = Infinity;
+          const activeStopNamesLower = activeBusStops.map((s: string) => s.toLowerCase());
+
+          allStopsWithCoords.forEach(stop => {
+            if (stop.lat && stop.lng && activeStopNamesLower.includes(stop.name.toLowerCase())) {
+              const lat1 = Number(stop.lat);
+              const lng1 = Number(stop.lng);
+              const R = 6371; // km
+              const dLat = (latitude - lat1) * Math.PI / 180;
+              const dLon = (longitude - lng1) * Math.PI / 180;
+              const a = 
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(latitude * Math.PI / 180) * 
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+              const dist = R * c;
+
+              if (dist < minDistance) {
+                minDistance = dist;
+                closestStop = stop;
+              }
+            }
+          });
+
+          if (closestStop) {
+            setBoardingStop((closestStop as any).name);
+            setHasAutoFilledNearest(true);
+            toast.info(`Auto-detected nearest boarding stop: ${(closestStop as any).name}`);
+          }
+        },
+        (error) => {
+          console.warn("Could not retrieve geolocation for nearest stop:", error);
+        }
+      );
+    }
+  }, [allStopsWithCoords, hasAutoFilledNearest, activeBusStops]);
+
+  // Background offline tickets sync hook
+  useEffect(() => {
+    let syncInterval: any = null;
+    
+    const syncOfflineTickets = async () => {
+      if (!navigator.onLine || ticketsToday.length === 0) return;
+      
+      const unsyncedTickets = ticketsToday.filter(t => t.synced === false);
+      if (unsyncedTickets.length === 0) return;
+
+      console.log(`Syncing ${unsyncedTickets.length} offline tickets...`);
+      let hasUpdates = false;
+      const updatedTickets = [...ticketsToday];
+
+      for (let i = 0; i < updatedTickets.length; i++) {
+        const ticket = updatedTickets[i];
+        if (ticket.synced === false) {
+          try {
+            const { error } = await supabase.rpc('rpc_insert_ticket', {
+              ticket_id: ticket.ticket_id,
+              user_id: null,
+              trip_id: ticket.trip_id,
+              bus_id: activeBusId,
+              bus_name: activeRouteName || 'Bus Route',
+              from_stop: ticket.origin_name,
+              to_stop: ticket.destination_name,
+              seats: ticket.seats,
+              fare: ticket.fare,
+              channel: 'ETM',
+              status: 'BOARDED',
+              qr_payload: `VALID:${ticket.ticket_id}`,
+              ticket_date: ticket.date
+            });
+
+            if (!error) {
+              updatedTickets[i] = { ...ticket, synced: true };
+              hasUpdates = true;
+              toast.info(`Offline ticket ${ticket.ticket_id} successfully synced!`);
+            }
+          } catch (err) {
+            console.error(`Failed to sync ticket ${ticket.ticket_id}:`, err);
+          }
+        }
+      }
+
+      if (hasUpdates) {
+        setTicketsToday(updatedTickets);
+        localStorage.setItem('conductor_tickets_list', JSON.stringify(updatedTickets));
+      }
+    };
+
+    syncInterval = setInterval(syncOfflineTickets, 12000);
+    window.addEventListener('online', syncOfflineTickets);
+
+    return () => {
+      if (syncInterval) clearInterval(syncInterval);
+      window.removeEventListener('online', syncOfflineTickets);
+    };
+  }, [ticketsToday, activeBusId, activeRouteName]);
 
   // Pre-fill boarding/destination stops when stops are loaded or changed
   useEffect(() => {
@@ -276,90 +456,107 @@ export const ConductorPage: React.FC = () => {
     }
   };
 
-  // 1.2 Select Bus Action Flow
-  const handleSelectBus = async () => {
-    if (!tempSelectedBus) {
-      toast.error('Please select a bus plate number to continue');
+  // 1.2 Select Bus Action Flow (Auto-identify bus from scanned QR payload)
+  const handleBusScanned = async (payload: string) => {
+    const cleanPayload = payload.trim().toUpperCase();
+    
+    // Find matched bus from buses list or local FLEET
+    const matchedBus = (buses.length > 0 ? buses : BUS_FLEET).find(
+      b => b.bus_id.toUpperCase() === cleanPayload || b.number_plate.toUpperCase() === cleanPayload
+    );
+
+    if (!matchedBus) {
+      toast.error(`No bus registered with ID/plate "${payload}"`);
       return;
     }
 
     setSelectBusLoading(true);
     try {
-      // POST /conductor/session/bus simulation
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      console.log(`POST /conductor/session/bus success: Selected Bus ${tempSelectedBus.bus_id}`);
+      localStorage.setItem('conductor_bus_id', matchedBus.bus_id);
+      localStorage.setItem('conductor_route_name', matchedBus.route_name);
+      localStorage.setItem('conductor_number_plate', matchedBus.number_plate);
       
-      localStorage.setItem('conductor_bus_id', tempSelectedBus.bus_id);
-      localStorage.setItem('conductor_route_name', tempSelectedBus.route_name);
-      localStorage.setItem('conductor_number_plate', tempSelectedBus.number_plate);
-      
-      setActiveBusId(tempSelectedBus.bus_id);
-      setActiveRouteName(tempSelectedBus.route_name);
-      setActiveNumberPlate(tempSelectedBus.number_plate);
+      setActiveBusId(matchedBus.bus_id);
+      setActiveRouteName(matchedBus.route_name);
+      setActiveNumberPlate(matchedBus.number_plate);
 
-      // Pre-fill default stops for the selected route
-      if (tempSelectedBus.stops && tempSelectedBus.stops.length >= 2) {
-        setBoardingStop(tempSelectedBus.stops[0]);
-        setDestinationStop(tempSelectedBus.stops[1]);
+      // Pre-fill stops
+      if (matchedBus.stops && matchedBus.stops.length >= 2) {
+        setBoardingStop(matchedBus.stops[0]);
+        setDestinationStop(matchedBus.stops[1]);
       }
 
       setCurrentView('CONDUCTOR_DETAILS');
-      toast.success(`Bus ${tempSelectedBus.number_plate} registered`);
+      toast.success(`Bus ${matchedBus.number_plate} selected via QR!`);
     } catch (err) {
-      toast.error('Bus selection registration failed.');
+      toast.error('Failed to select bus.');
     } finally {
       setSelectBusLoading(false);
     }
   };
 
-  // 1.3 Conductor Details & Start Duty Flow
+  // 1.3 Conductor Details & Start Duty Flow (Self-allocation)
   const handleStartDuty = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!conductorIdInput.trim()) {
-      toast.error('Please enter a Conductor ID to start duty');
+      toast.error('Please enter a Conductor employee ID to start');
       return;
     }
 
     setStartDutyLoading(true);
     try {
-      const generatedTripId = `TRIP-${Math.floor(100000 + Math.random() * 900000)}`;
+      let tripId = selectedTripId;
       
-      let routeId = null;
-      let bus = null;
-      try {
-        const { data } = await supabase.rpc('rpc_get_bus_by_id', { bus_id: activeBusId });
-        bus = data;
-        routeId = (bus as any)?.route_id || null;
-      } catch (err) {
-        console.warn('Failed to query bus info from Supabase:', err);
-      }
-
-      try {
-        const { error } = await supabase.rpc('rpc_add_trip', {
-          trip_id: generatedTripId,
-          route_id: routeId,
-          bus_id: activeBusId,
-          driver_name: 'Driver Name',
-          conductor_name: conductorIdInput,
-          status: 'RUNNING',
-          start_time: new Date().toLocaleTimeString(),
-          district: (bus as any)?.district || 'Tiruppur',
-          zone: (bus as any)?.zone || 'West'
-        });
-
-        if (error) {
-          console.warn('Supabase trips insert returned error, using local fallback:', error);
+      // Fallback: If no scheduled trip was selected, let's create a custom one!
+      if (!tripId) {
+        tripId = `TRIP-${Math.floor(100000 + Math.random() * 900000)}`;
+        
+        let routeId = null;
+        let bus = null;
+        try {
+          const { data } = await supabase.rpc('rpc_get_bus_by_id', { bus_id: activeBusId });
+          bus = data;
+          routeId = (bus as any)?.route_id || null;
+        } catch (err) {
+          console.warn('Failed to query bus info from Supabase:', err);
         }
-      } catch (err) {
-        console.warn('Supabase trips insert threw exception, using local fallback:', err);
+
+        try {
+          const { error } = await supabase.rpc('rpc_add_trip', {
+            trip_id: tripId,
+            route_id: routeId,
+            bus_id: activeBusId,
+            driver_name: '',
+            conductor_name: conductorIdInput, // Use Employee ID
+            status: 'RUNNING',
+            start_time: new Date().toLocaleTimeString(),
+            district: (bus as any)?.district || 'Tiruppur',
+            zone: ''
+          });
+          if (error) throw error;
+        } catch (err) {
+          console.warn('Supabase trips insert threw error, using local fallback:', err);
+        }
+      } else {
+        // A scheduled trip was selected! Let's allocate the conductor and set status to RUNNING
+        const { error } = await supabase
+          .from('trips')
+          .update({
+            conductor_id: conductorIdInput, // Allocate conductor ID
+            status: 'RUNNING',
+            actual_start_time: new Date().toISOString()
+          })
+          .eq('id', tripId);
+        
+        if (error) throw error;
       }
-      
+
       localStorage.setItem('conductor_id', conductorIdInput);
-      localStorage.setItem('conductor_trip_id', generatedTripId);
+      localStorage.setItem('conductor_trip_id', tripId);
       localStorage.removeItem('conductor_tickets_list');
       
       setActiveConductorId(conductorIdInput);
-      setActiveTripId(generatedTripId);
+      setActiveTripId(tripId);
       setTicketsToday([]);
       setCurrentView('TRIP_HOME');
       toast.success('Duty started. Real-time GPS tracking is now active.');
@@ -397,28 +594,35 @@ export const ConductorPage: React.FC = () => {
 
       const generatedTicketId = `NIG-${Math.floor(100000 + Math.random() * 900000)}`;
       
+      let isSynced = false;
       try {
-        const { error } = await supabase.rpc('rpc_insert_ticket', {
-          ticket_id: generatedTicketId,
-          user_id: null,
-          trip_id: activeTripId,
-          bus_id: activeBusId,
-          bus_name: activeRouteName || 'Bus Route',
-          from_stop: boardingStop,
-          to_stop: destinationStop,
-          seats: passengersCount,
-          fare: totalCalculatedFare,
-          channel: 'ETM',
-          status: 'BOARDED',
-          qr_payload: `VALID:${generatedTicketId}`,
-          ticket_date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        });
+        if (navigator.onLine) {
+          const { error } = await supabase.rpc('rpc_insert_ticket', {
+            ticket_id: generatedTicketId,
+            user_id: null,
+            trip_id: activeTripId,
+            bus_id: activeBusId,
+            bus_name: activeRouteName || 'Bus Route',
+            from_stop: boardingStop,
+            to_stop: destinationStop,
+            seats: passengersCount,
+            fare: totalCalculatedFare,
+            channel: 'ETM',
+            status: 'BOARDED',
+            qr_payload: `VALID:${generatedTicketId}`,
+            ticket_date: new Date().toISOString().split('T')[0]
+          });
 
-        if (error) {
-          console.warn('Supabase ticket insert returned error, using local fallback:', error);
+          if (!error) {
+            isSynced = true;
+          } else {
+            console.warn('Supabase ticket insert returned error, saving offline:', error);
+          }
+        } else {
+          console.warn('Network offline, saving ticket locally for later sync.');
         }
       } catch (err) {
-        console.warn('Supabase ticket insert threw exception, using local fallback:', err);
+        console.warn('Supabase ticket insert threw exception, saving offline:', err);
       }
 
       const newTicket = {
@@ -432,7 +636,8 @@ export const ConductorPage: React.FC = () => {
         ticket_type: ticketType,
         fare: totalCalculatedFare,
         issued_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        date: new Date().toISOString().split('T')[0],
+        synced: isSynced
       };
 
       const updatedList = [newTicket, ...ticketsToday];
@@ -440,7 +645,11 @@ export const ConductorPage: React.FC = () => {
 
       setLastIssuedTicket(newTicket);
       setCurrentView('TICKET_CONFIRMATION');
-      toast.success(`Ticket ${generatedTicketId} Issued successfully!`);
+      if (isSynced) {
+        toast.success(`Ticket ${generatedTicketId} Issued & Synced!`);
+      } else {
+        toast.warning(`Ticket ${generatedTicketId} Issued Offline! (Will sync when online)`);
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to issue ticket.');
     } finally {
@@ -813,80 +1022,75 @@ export const ConductorPage: React.FC = () => {
                 <div className="w-14 h-14 bg-emerald-50 text-[#0D2A5D] border border-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-2 shadow-sm">
                   <BusIcon size={28} />
                 </div>
-                <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900">Select Bus</h2>
-                <p className="text-xs text-slate-400 font-extrabold uppercase tracking-widest">Identify your duty vehicle plate</p>
+                <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900">Scan Bus QR</h2>
+                <p className="text-xs text-slate-400 font-extrabold uppercase tracking-widest">Identify your duty vehicle</p>
               </div>
 
-              {/* Searchable input */}
-              <div className="relative">
-                <Search className="absolute left-4 top-4 text-slate-400" size={18} />
-                <input 
-                  type="text"
-                  placeholder="Search number plate or route..."
-                  value={searchBusQuery}
-                  onChange={(e) => setSearchBusQuery(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 text-sm font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#D97F00] focus:bg-white rounded-xl transition-all"
-                />
-              </div>
+              {isBusCameraActive ? (
+                <div className="space-y-4">
+                  <div id="bus-reader" className="w-full overflow-hidden rounded-2xl border-2 border-slate-200 bg-slate-50" />
+                  <button
+                    onClick={stopBusCamera}
+                    className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md"
+                  >
+                    Cancel Camera
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  <button
+                    onClick={startBusCamera}
+                    className="w-full py-6 bg-slate-900 hover:bg-slate-800 text-white transition-all font-black text-sm uppercase tracking-widest rounded-2xl flex items-center justify-center gap-3 shadow-md"
+                  >
+                    <QrCode size={22} />
+                    Open QR Scanner
+                  </button>
 
-              {/* Dropdown list items */}
-              <div className="max-h-72 overflow-y-auto space-y-3.5 border border-slate-100 p-2.5 bg-slate-50 rounded-2xl">
-                {filteredBuses.length > 0 ? (
-                  filteredBuses.map((bus) => {
-                    const isSelected = tempSelectedBus?.bus_id === bus.bus_id;
-                    return (
-                      <button
-                        key={bus.bus_id}
-                        onClick={() => setTempSelectedBus(bus)}
-                        className={`w-full p-4.5 text-left transition-all border-2 rounded-2xl flex items-center justify-between ${
-                          isSelected 
-                            ? 'bg-amber-50/60 border-[#D97F00] text-slate-900 shadow-md scale-[1.01]' 
-                            : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700 shadow-xs'
-                        }`}
-                      >
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2.5 py-1 text-xs font-black rounded-lg border ${
-                              isSelected ? 'bg-[#D97F00] text-white border-orange-600' : 'bg-slate-100 text-slate-700 border-slate-250'
-                            }`}>
-                              {bus.number_plate}
-                            </span>
-                          </div>
-                          <p className="text-sm font-extrabold text-slate-800 uppercase tracking-tight">
-                            {bus.route_name}
-                          </p>
-                        </div>
-                        {isSelected ? (
-                          <div className="w-6 h-6 rounded-full bg-[#D97F00] text-white flex items-center justify-center shadow-sm shrink-0">
-                            <Check size={14} strokeWidth={3} />
-                          </div>
-                        ) : (
-                          <ChevronRight size={16} className="text-slate-300 shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-wider">
-                    No matching buses found
+                  <div className="relative flex items-center my-2">
+                    <div className="flex-grow border-t border-slate-200"></div>
+                    <span className="flex-shrink mx-4 text-[10px] font-black uppercase tracking-wider text-slate-400">OR</span>
+                    <div className="flex-grow border-t border-slate-200"></div>
                   </div>
-                )}
-              </div>
 
-              <button 
-                onClick={handleSelectBus}
-                disabled={!tempSelectedBus || selectBusLoading}
-                className="w-full mt-2 py-4 bg-[#0D2A5D] hover:bg-[#0a2149] disabled:opacity-50 text-white font-black text-sm uppercase tracking-widest transition-all rounded-xl shadow-md flex items-center justify-center gap-2.5 active:scale-[0.98]"
-              >
-                {selectBusLoading ? (
-                  <>
-                    <Loader2 className="animate-spin" size={16} />
-                    Registering Vehicle...
-                  </>
-                ) : (
-                  'Confirm & Register Bus'
-                )}
-              </button>
+                  {/* Manual Input Fallback */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Enter plate number manually</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. TN 38 AB 1234"
+                        className="flex-1 px-4 py-3.5 bg-slate-50 border border-slate-200 text-sm font-bold text-slate-900 rounded-xl focus:outline-none focus:border-[#D97F00] uppercase"
+                        id="manual-bus-plate"
+                      />
+                      <button
+                        onClick={() => {
+                          const val = (document.getElementById('manual-bus-plate') as HTMLInputElement)?.value;
+                          if (val) handleBusScanned(val);
+                        }}
+                        className="px-5 py-3.5 bg-[#0D2A5D] hover:bg-[#0a2149] text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all"
+                      >
+                        Submit
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Testing simulator panel */}
+                  <div className="bg-slate-50 border border-slate-150 p-4.5 rounded-2xl space-y-2 mt-4">
+                    <span className="text-[10px] font-black text-slate-450 uppercase tracking-widest block">Simulator Shortcuts (Test QR)</span>
+                    <div className="flex flex-wrap gap-2">
+                      {(buses.length > 0 ? buses : BUS_FLEET).map(bus => (
+                        <button
+                          key={bus.bus_id}
+                          onClick={() => handleBusScanned(bus.number_plate)}
+                          className="px-3 py-2 bg-white hover:bg-orange-50 border border-slate-200 hover:border-orange-300 text-[10px] font-black uppercase text-slate-700 hover:text-[#D97F00] transition-all rounded-lg"
+                        >
+                          Scan {bus.number_plate.split(' ').slice(2).join(' ') || bus.number_plate}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -903,23 +1107,19 @@ export const ConductorPage: React.FC = () => {
                 <div className="w-14 h-14 bg-emerald-50 text-[#0D2A5D] border border-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-2 shadow-sm">
                   <User size={28} />
                 </div>
-                <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900">
-                  {activeConductorId ? 'Start New Trip' : 'Duty Code'}
-                </h2>
-                <p className="text-xs text-slate-400 font-extrabold uppercase tracking-widest">
-                  {activeConductorId ? 'Configure returning or next route run' : 'Register duty employee code'}
-                </p>
+                <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900">Trip Setup</h2>
+                <p className="text-xs text-slate-400 font-extrabold uppercase tracking-widest">Verify run details and allocate yourself</p>
               </div>
 
               {/* Registered session badge */}
               <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl space-y-3 shadow-xs">
-                <p className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Assigned Bus Details</p>
+                <p className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Selected Vehicle</p>
                 <div className="flex justify-between items-center">
                   <span className="px-3 py-1 bg-[#0D2A5D] text-white text-xs font-black uppercase tracking-wider rounded-lg shadow-xs">
                     {activeNumberPlate}
                   </span>
                   <span className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-                    VEHICLE CONFIRMED
+                    VEHICLE READY
                   </span>
                 </div>
                 <p className="text-xs font-extrabold text-slate-800 uppercase tracking-tight leading-snug">
@@ -930,28 +1130,99 @@ export const ConductorPage: React.FC = () => {
               <form onSubmit={handleStartDuty} className="space-y-5">
                 <div className="space-y-2">
                   <label className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                    <QrCode size={14} className="text-[#0D2A5D]" /> Conductor ID / Employee Code
+                    <User size={14} className="text-[#0D2A5D]" /> Conductor Employee ID
                   </label>
                   <input 
                     type="text"
                     placeholder="e.g. COND-38491"
                     value={conductorIdInput}
                     onChange={(e) => setConductorIdInput(e.target.value)}
-                    className="w-full px-4 py-4 bg-white border border-slate-200 text-slate-900 placeholder-slate-400 text-base font-black focus:outline-none focus:border-[#D97F00] focus:ring-4 focus:ring-orange-100/30 rounded-xl transition-all"
+                    className="w-full px-4 py-4 bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 text-base font-black focus:outline-none focus:border-[#D97F00] rounded-xl transition-all"
                     required
                   />
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                    Enter your physical ticket machine or staff ID card code.
-                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <Clock size={14} className="text-[#0D2A5D]" /> Select Scheduled Trip
+                  </label>
+                  
+                  {loadingTrips ? (
+                    <div className="flex items-center gap-2 text-slate-500 py-3 text-xs font-bold">
+                      <Loader2 className="animate-spin" size={14} />
+                      <span>Fetching route schedules...</span>
+                    </div>
+                  ) : scheduledTrips.length === 0 ? (
+                    <div className="p-4 bg-amber-50 text-amber-800 border border-amber-200 rounded-2xl text-xs font-bold space-y-2">
+                      <p>No scheduled trips found for this bus today.</p>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTripId('')}
+                        className={`w-full py-3.5 border-2 rounded-xl text-xs font-black uppercase tracking-wider text-center transition-all ${
+                          selectedTripId === '' ? 'bg-[#D97F00] text-white border-orange-600' : 'bg-white text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        Create Custom Run (Fallback)
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto p-1 bg-slate-50 border border-slate-100 rounded-2xl">
+                      {scheduledTrips.map(trip => {
+                        const isSelected = selectedTripId === trip.id;
+                        return (
+                          <button
+                            type="button"
+                            key={trip.id}
+                            onClick={() => setSelectedTripId(trip.id)}
+                            className={`w-full p-4.5 text-left transition-all border-2 rounded-xl flex items-center justify-between ${
+                              isSelected 
+                                ? 'bg-amber-50/60 border-[#D97F00] text-slate-900' 
+                                : 'bg-white border-slate-200 hover:border-slate-350 text-slate-700'
+                            }`}
+                          >
+                            <div>
+                              <p className="text-xs font-black text-slate-900">Trip ID: #{trip.id}</p>
+                              <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">Start Time: {trip.start_time || 'N/A'}</p>
+                            </div>
+                            {isSelected && (
+                              <div className="w-5 h-5 rounded-full bg-[#D97F00] text-white flex items-center justify-center shrink-0">
+                                <Check size={12} strokeWidth={3} />
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTripId('')}
+                        className={`w-full p-4.5 text-left transition-all border-2 rounded-xl flex items-center justify-between ${
+                          selectedTripId === '' 
+                            ? 'bg-amber-50/60 border-[#D97F00] text-slate-900 font-black' 
+                            : 'bg-white border-slate-200 hover:border-slate-350 text-slate-750'
+                        }`}
+                      >
+                        <span>Create Custom Run (Fallback)</span>
+                        {selectedTripId === '' && (
+                          <div className="w-5 h-5 rounded-full bg-[#D97F00] text-white flex items-center justify-center shrink-0">
+                            <Check size={12} strokeWidth={3} />
+                          </div>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4.5 pt-2">
                   <button 
                     type="button"
-                    onClick={() => setCurrentView('SELECT_BUS')}
+                    onClick={() => {
+                      localStorage.removeItem('conductor_bus_id');
+                      setActiveBusId(null);
+                      setCurrentView('SELECT_BUS');
+                    }}
                     className="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs uppercase tracking-widest transition-all rounded-xl border border-slate-200 flex items-center justify-center gap-2"
                   >
-                    Change Bus
+                    Rescan Bus
                   </button>
 
                   <button 
@@ -965,7 +1236,7 @@ export const ConductorPage: React.FC = () => {
                         Starting...
                       </>
                     ) : (
-                      activeConductorId ? 'Start New Trip' : 'Start Duty'
+                      'Start Duty'
                     )}
                   </button>
                 </div>

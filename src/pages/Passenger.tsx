@@ -212,6 +212,10 @@ export const PassengerPage: React.FC<PassengerPageProps> = ({ initialView }) => 
   const [dbStops, setDbStops] = useState<string[]>([]);
   const [isTransitLoading, setIsTransitLoading] = useState(false);
 
+  // Geo-tiling states
+  const [allStopsWithCoords, setAllStopsWithCoords] = useState<any[]>([]);
+  const [hasAutoFilledNearest, setHasAutoFilledNearest] = useState(false);
+
   // Complaint grievance form states
   const [complaintType, setComplaintType] = useState('Delay');
   const [complaintDesc, setComplaintDesc] = useState('');
@@ -243,7 +247,7 @@ export const PassengerPage: React.FC<PassengerPageProps> = ({ initialView }) => 
     try {
       const { data, error } = await supabase.rpc('rpc_send_alert_message', {
         p_alert_id: activeSosAlertId,
-        p_sender_role: 'SYSTEM',
+        p_sender_role: 'USER',
         p_sender_name: userName,
         p_message: newSosMessageText.trim()
       });
@@ -396,6 +400,33 @@ export const PassengerPage: React.FC<PassengerPageProps> = ({ initialView }) => 
     }
   }, [currentView, userId]);
 
+  // Poll active SOS alert status while an active SOS alert exists or chat is open
+  useEffect(() => {
+    if (!userId) return;
+    const hasActive = (sosAlerts || []).some((alert: any) => 
+      alert.status === 'PENDING' || alert.status === 'ACKNOWLEDGED'
+    );
+    if (!hasActive && !isSosChatOpen) return;
+
+    const interval = setInterval(() => {
+      fetchPassengerSosAlerts(userId);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [userId, sosAlerts, isSosChatOpen]);
+
+  // Automatically close chat if the active alert is resolved/solved by admin
+  useEffect(() => {
+    if (activeSosAlertId && sosAlerts.length > 0) {
+      const currentAlert = sosAlerts.find(a => a.id === activeSosAlertId);
+      if (currentAlert && currentAlert.status === 'RESOLVED') {
+        toast.info('This emergency alert has been marked as solved.');
+        setIsSosChatOpen(false);
+        setActiveSosAlertId(null);
+      }
+    }
+  }, [activeSosAlertId, sosAlerts]);
+
   // Initialize Nigazhthisai custom hook with user session id
   const superApp = useNigazhthisai(userId);
 
@@ -451,6 +482,67 @@ export const PassengerPage: React.FC<PassengerPageProps> = ({ initialView }) => 
   }, [selectedDistrict]);
 
   const stopsToShow = dbStops.length > 0 ? dbStops : (STOPS_BY_DISTRICT[selectedDistrict] || STOPS_BY_DISTRICT['default']);
+
+  // Fetch stops with coordinates for geo-tiling
+  useEffect(() => {
+    const fetchStopsWithCoords = async () => {
+      try {
+        const { data, error } = await supabase.from('stops').select('*');
+        if (!error && data) {
+          setAllStopsWithCoords(data);
+        }
+      } catch (err) {
+        console.error('Failed to load stops coordinates in passenger:', err);
+      }
+    };
+    fetchStopsWithCoords();
+  }, []);
+
+  // Compute nearest stop on startup
+  useEffect(() => {
+    if (allStopsWithCoords.length === 0 || hasAutoFilledNearest || stopsToShow.length === 0) return;
+
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          let closestStop = null;
+          let minDistance = Infinity;
+          const stopsToShowLower = stopsToShow.map((s: string) => s.toLowerCase());
+
+          allStopsWithCoords.forEach(stop => {
+            if (stop.lat && stop.lng && stopsToShowLower.includes(stop.name.toLowerCase())) {
+              const lat1 = Number(stop.lat);
+              const lng1 = Number(stop.lng);
+              const R = 6371; // km
+              const dLat = (latitude - lat1) * Math.PI / 180;
+              const dLon = (longitude - lng1) * Math.PI / 180;
+              const a = 
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(latitude * Math.PI / 180) * 
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+              const dist = R * c;
+
+              if (dist < minDistance) {
+                minDistance = dist;
+                closestStop = stop;
+              }
+            }
+          });
+
+          if (closestStop) {
+            setFromStop((closestStop as any).name);
+            setHasAutoFilledNearest(true);
+            toast.info(`Auto-selected nearest boarding stop: ${(closestStop as any).name}`);
+          }
+        },
+        (error) => {
+          console.warn("Could not retrieve geolocation for nearest stop:", error);
+        }
+      );
+    }
+  }, [allStopsWithCoords, hasAutoFilledNearest, stopsToShow]);
 
   // Fetch trips and passenger tickets
   const loadData = async () => {

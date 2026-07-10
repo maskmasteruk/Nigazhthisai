@@ -28,12 +28,10 @@ export const Revenue: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedDistrict, setSelectedDistrict] = useState('All');
-  const [selectedZone, setSelectedZone] = useState('All');
   const userRole = localStorage.getItem('user_role') || 'ADMIN';
   const isMaster = userRole === 'MASTER_ADMIN';
 
   const DISTRICTS = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur', 'Trichy', 'Erode'];
-  const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
 
   useEffect(() => {
     const fetchAdminMetadata = async () => {
@@ -42,7 +40,6 @@ export const Revenue: React.FC = () => {
         if (session?.user?.user_metadata) {
           const meta = session.user.user_metadata;
           if (meta.district) setSelectedDistrict(meta.district);
-          if (meta.zone) setSelectedZone(meta.zone);
         }
       }
     };
@@ -53,7 +50,7 @@ export const Revenue: React.FC = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await adminApi.getRevenueData({ district: selectedDistrict, zone: selectedZone });
+        const res = await adminApi.getRevenueData({ district: selectedDistrict });
         setData(res);
       } catch (error) {
         toast.error('Failed to fetch revenue data');
@@ -62,7 +59,7 @@ export const Revenue: React.FC = () => {
       }
     };
     fetchData();
-  }, [selectedDistrict, selectedZone]);
+  }, [selectedDistrict]);
 
   const handleExportReport = () => {
     toast.success('Financial report exported successfully', {
@@ -84,31 +81,18 @@ export const Revenue: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 border border-slate-200">
         <div className="flex flex-wrap items-center gap-4">
-          {isMaster && (
-            <>
-              <div className="space-y-1">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">District</p>
-                <select 
-                  value={selectedDistrict}
-                  onChange={(e) => setSelectedDistrict(e.target.value)}
-                  className="bg-slate-50 border border-slate-100 px-4 py-2 text-xs font-black uppercase tracking-widest outline-none focus:border-primary transition-all rounded-none"
-                >
-                  {DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              
-              <div className="space-y-1">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Zone</p>
-                <select 
-                  value={selectedZone}
-                  onChange={(e) => setSelectedZone(e.target.value)}
-                  className="bg-slate-50 border border-slate-100 px-4 py-2 text-xs font-black uppercase tracking-widest outline-none focus:border-primary transition-all rounded-none"
-                >
-                  {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
-                </select>
-              </div>
-            </>
-          )}
+        {isMaster && (
+          <div className="space-y-1">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">District</p>
+            <select 
+              value={selectedDistrict}
+              onChange={(e) => setSelectedDistrict(e.target.value)}
+              className="bg-slate-50 border border-slate-100 px-4 py-2 text-xs font-black uppercase tracking-widest outline-none focus:border-primary transition-all rounded-none"
+            >
+              {DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+        )}
         </div>
         
         <div className="flex items-center gap-3">

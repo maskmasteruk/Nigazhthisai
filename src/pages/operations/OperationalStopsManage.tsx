@@ -216,8 +216,6 @@ export const OperationalStopsManage: React.FC = () => {
       await adminApi.updateRoute(route.id, {
         name: route.name,
         code: route.code,
-        district: route.district,
-        zone: route.zone,
         stops: routeStops
       });
 

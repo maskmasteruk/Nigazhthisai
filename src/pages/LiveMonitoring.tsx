@@ -25,12 +25,10 @@ export const LiveMonitoring: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [selectedTrip, setSelectedTrip] = useState<any>(null);
   const [selectedDistrict, setSelectedDistrict] = useState('All');
-  const [selectedZone, setSelectedZone] = useState('All');
   const userRole = localStorage.getItem('user_role') || 'ADMIN';
   const isMaster = userRole === 'MASTER_ADMIN';
 
   const DISTRICTS = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur', 'Trichy', 'Erode'];
-  const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
 
   useEffect(() => {
     const fetchAdminMetadata = async () => {
@@ -41,10 +39,6 @@ export const LiveMonitoring: React.FC = () => {
           if (meta.district) {
             const match = DISTRICTS.find(d => d.toLowerCase() === meta.district.toLowerCase());
             if (match) setSelectedDistrict(match);
-          }
-          if (meta.zone) {
-            const match = ZONES.find(z => z.toLowerCase() === meta.zone.toLowerCase());
-            if (match) setSelectedZone(match);
           }
         }
       }
@@ -79,8 +73,7 @@ export const LiveMonitoring: React.FC = () => {
     const matchesSearch = trip.bus_id.toLowerCase().includes(searchQuery.toLowerCase()) || 
                          trip.route_name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesDistrict = selectedDistrict === 'All' || trip.district === selectedDistrict;
-    const matchesZone = selectedZone === 'All' || trip.zone === selectedZone;
-    return matchesSearch && matchesDistrict && matchesZone;
+    return matchesSearch && matchesDistrict;
   });
 
   return (
@@ -99,27 +92,15 @@ export const LiveMonitoring: React.FC = () => {
         </div>
 
         {isMaster && (
-          <>
-            <select 
-              value={selectedDistrict}
-              onChange={(e) => setSelectedDistrict(e.target.value)}
-              className="px-4 py-2 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-widest text-slate-700 appearance-none cursor-pointer"
-            >
-              {DISTRICTS.map(d => (
-                <option key={d} value={d}>{d} DISTRICT</option>
-              ))}
-            </select>
-
-            <select 
-              value={selectedZone}
-              onChange={(e) => setSelectedZone(e.target.value)}
-              className="px-4 py-2 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-widest text-slate-700 appearance-none cursor-pointer"
-            >
-              {ZONES.map(z => (
-                <option key={z} value={z}>{z} ZONE</option>
-              ))}
-            </select>
-          </>
+          <select 
+            value={selectedDistrict}
+            onChange={(e) => setSelectedDistrict(e.target.value)}
+            className="px-4 py-2 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-widest text-slate-700 appearance-none cursor-pointer text-center"
+          >
+            {DISTRICTS.map(d => (
+              <option key={d} value={d}>{d} DISTRICT</option>
+            ))}
+          </select>
         )}
       </div>
 

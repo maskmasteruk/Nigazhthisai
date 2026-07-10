@@ -12,21 +12,18 @@ export const OperationalRouteCreate: React.FC = () => {
   const { t } = useTranslation();
 
   const DISTRICTS = ['All', 'Chennai', 'Coimbatore', 'Madurai', 'Trichy', 'Salem', 'Tiruppur', 'Erode', 'Vellore', 'Kanchipuram', 'Tirunelveli', 'Thanjavur'];
-  const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [routes, setRoutes] = useState<any[]>([]);
   const [isLoadingRoutes, setIsLoadingRoutes] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDistrict, setFilterDistrict] = useState('All');
-  const [filterZone, setFilterZone] = useState('All');
 
   // Form state
   const [formData, setFormData] = useState({
     name: '',
     code: '',
-    district: DISTRICTS[5], // Tiruppur default
-    zone: ZONES[3] // East default
+    district: DISTRICTS[5] // Tiruppur default
   });
 
   const fetchRoutes = async () => {
@@ -58,7 +55,6 @@ export const OperationalRouteCreate: React.FC = () => {
         name: formData.name.trim(),
         code: formData.code.trim().toUpperCase(),
         district: formData.district,
-        zone: formData.zone,
         stops: []
       });
 
@@ -78,9 +74,8 @@ export const OperationalRouteCreate: React.FC = () => {
       r.id?.toString().includes(searchQuery);
 
     const matchesDistrict = filterDistrict === 'All' || r.district?.toLowerCase() === filterDistrict.toLowerCase();
-    const matchesZone = filterZone === 'All' || r.zone?.toLowerCase() === filterZone.toLowerCase();
 
-    return matchesSearch && matchesDistrict && matchesZone;
+    return matchesSearch && matchesDistrict;
   });
 
   return (
@@ -123,28 +118,15 @@ export const OperationalRouteCreate: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">District</label>
-                <select 
-                  className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg appearance-none cursor-pointer"
-                  value={formData.district}
-                  onChange={e => setFormData({...formData, district: e.target.value})}
-                >
-                  {DISTRICTS.filter(d => d !== 'All').map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Zone</label>
-                <select 
-                  className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg appearance-none cursor-pointer"
-                  value={formData.zone}
-                  onChange={e => setFormData({...formData, zone: e.target.value})}
-                >
-                  {ZONES.filter(z => z !== 'All').map(z => <option key={z} value={z}>{z}</option>)}
-                </select>
-              </div>
+            <div className="space-y-2 w-full">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">District</label>
+              <select 
+                className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg appearance-none cursor-pointer"
+                value={formData.district}
+                onChange={e => setFormData({...formData, district: e.target.value})}
+              >
+                {DISTRICTS.filter(d => d !== 'All').map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
 
             <button 
@@ -192,20 +174,10 @@ export const OperationalRouteCreate: React.FC = () => {
               <select 
                 value={filterDistrict}
                 onChange={e => setFilterDistrict(e.target.value)}
-                className="px-3 py-2.5 bg-white border-2 border-slate-200 focus:border-slate-900 outline-none font-bold text-xs uppercase tracking-wider text-slate-700 cursor-pointer w-1/2 sm:w-auto"
+                className="px-3 py-2.5 bg-white border-2 border-slate-200 focus:border-slate-900 outline-none font-bold text-xs uppercase tracking-wider text-slate-700 cursor-pointer w-full"
               >
                 {DISTRICTS.map(d => (
                   <option key={d} value={d}>{d === 'All' ? 'ALL DISTRICTS' : `${d.toUpperCase()}`}</option>
-                ))}
-              </select>
-
-              <select 
-                value={filterZone}
-                onChange={e => setFilterZone(e.target.value)}
-                className="px-3 py-2.5 bg-white border-2 border-slate-200 focus:border-slate-900 outline-none font-bold text-xs uppercase tracking-wider text-slate-700 cursor-pointer w-1/2 sm:w-auto"
-              >
-                {ZONES.map(z => (
-                  <option key={z} value={z}>{z === 'All' ? 'ALL ZONES' : `${z.toUpperCase()} ZONE`}</option>
                 ))}
               </select>
             </div>
@@ -219,7 +191,7 @@ export const OperationalRouteCreate: React.FC = () => {
                   <tr className="bg-slate-900 text-white border-b-2 border-slate-950">
                     <th className="px-6 py-4 text-xs font-black uppercase tracking-widest">Code</th>
                     <th className="px-6 py-4 text-xs font-black uppercase tracking-widest">Route Name</th>
-                    <th className="px-6 py-4 text-xs font-black uppercase tracking-widest">District/Zone</th>
+                    <th className="px-6 py-4 text-xs font-black uppercase tracking-widest">District</th>
                     <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-right">Action</th>
                   </tr>
                 </thead>
@@ -253,7 +225,7 @@ export const OperationalRouteCreate: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-6 py-4 text-xs font-bold text-slate-600">
-                          {route.district} / {route.zone}
+                          {route.district}
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button

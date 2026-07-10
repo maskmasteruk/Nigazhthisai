@@ -1,28 +1,50 @@
 -- ========================================================
--- NIGAZHTHISAI MASTER DATABASE SCHEMA
+-- NIGAZHTHISAI MASTER DATABASE SCHEMA V2
 -- ========================================================
 
 -- Enable required extensions
 create extension if not exists pgcrypto with schema extensions;
 create extension if not exists "uuid-ossp" with schema extensions;
 
--- 2. ROUTES TABLE
+-- 1. DISTRICTS TABLE
+create table if not exists public.districts (
+  id serial primary key,
+  name text not null unique,
+  lat numeric not null,
+  lon numeric not null
+);
+
+-- 2. CODES TABLE
+create table if not exists public.codes (
+  code text primary key,
+  description text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 3. ROUTES TABLE
 create table if not exists public.routes (
   id serial primary key,
   name text not null,
-  code text not null unique,
+  from_code text references public.codes(code) on delete set null,
+  to_code text references public.codes(code) on delete set null,
   num_stops integer default 0,
   status text not null default 'ACTIVE' check (status in ('ACTIVE', 'INACTIVE')),
-  district text,
-  zone text,
-  stops jsonb default '[]'::jsonb,
+  district integer references public.districts(id) on delete set null,
+  stops jsonb default '[]'::jsonb, -- jsonb array of UUIDs
   day_schedules jsonb default '{}'::jsonb,
   special_overrides jsonb default '{}'::jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 3. BUSES TABLE
+-- 4. ETM TABLE
+create table if not exists public.etm (
+  id text primary key,
+  status text not null default 'ACTIVE' check (status in ('ACTIVE', 'INACTIVE')),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 5. BUSES TABLE
 create table if not exists public.buses (
   id text primary key,
   registration_number text not null unique,
@@ -31,89 +53,81 @@ create table if not exists public.buses (
   current_lat numeric not null default 11.1085,
   current_lng numeric not null default 77.3411,
   occupancy text not null default 'low' check (occupancy in ('low', 'medium', 'high')),
-  current_occupancy integer not null default 0,
-  fare numeric not null default 14.0,
-  eta integer not null default 5,
-  depot text,
-  district text,
-  zone text,
+  district integer references public.districts(id) on delete set null,
   status text not null default 'ACTIVE' check (status in ('ACTIVE', 'MAINTENANCE')),
   model text,
   type text not null default 'NON-AC' check (type in ('AC', 'NON-AC')),
-  etm_id text,
+  etm_id text references public.etm(id) on delete set null,
   last_updated timestamp with time zone default timezone('utc'::text, now()) not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 4. TRIPS TABLE
+-- 6. TRIPS TABLE
 create table if not exists public.trips (
   id text primary key,
   route_id integer references public.routes(id) on delete cascade not null,
   bus_id text references public.buses(id) on delete set null,
-  driver_name text,
-  conductor_name text,
-  start_time text,
-  end_time text,
-  actual_start_time text,
+  driver_id text,
+  conductor_id text,
+  start_time timestamp with time zone,
+  end_time timestamp with time zone,
+  actual_start_time timestamp with time zone,
   status text not null default 'PLANNED' check (status in ('PLANNED', 'SCHEDULED', 'RUNNING', 'COMPLETED', 'CANCELLED')),
-  occupancy integer not null default 0,
-  district text,
-  zone text,
-  current_segment text,
+  district integer references public.districts(id) on delete set null,
   last_gps_time timestamp with time zone,
-  delay_minutes integer not null default 0,
-  onboard_passengers integer not null default 0,
-  occupancy_percent integer not null default 0,
-  etm_status text not null default 'OFFLINE' check (etm_status in ('ONLINE', 'OFFLINE')),
   driver_ended boolean default false,
   conductor_ended boolean default false,
-  driver_start_lat numeric,
-  driver_start_lng numeric,
-  driver_end_lat numeric,
-  driver_end_lng numeric,
+  trip_start_lat numeric,
+  trip_start_lng numeric,
+  trip_end_lat numeric,
+  trip_end_lng numeric,
   gps_verified boolean default false,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 5. TICKETS TABLE
+-- 7. TRANSACTIONS TABLE
+create table if not exists public.transactions (
+  id text primary key,
+  amount numeric not null,
+  status text not null default 'SUCCESS',
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 8. TICKETS TABLE
 create table if not exists public.tickets (
   id text primary key,
   user_id uuid references auth.users(id) on delete set null,
-  trip_id text references public.trips(id) on delete cascade,
   bus_id text references public.buses(id) on delete set null,
-  bus_name text,
-  origin_stop_id text,
-  destination_stop_id text,
-  from_stop text not null,
-  to_stop text not null,
-  channel text not null default 'APP' check (channel in ('APP', 'ETM')),
+  order_id text references public.razorpay_orders(id) on delete set null,
+  origin_stop_id uuid references public.stops(id) on delete set null,
+  destination_stop_id uuid references public.stops(id) on delete set null,
+  channel text not null default 'passenger' check (channel in ('passenger', 'conductor')),
   status text not null default 'CONFIRMED' check (status in ('PENDING_PAYMENT', 'CONFIRMED', 'BOARDED', 'EXPIRED', 'CANCELLED')),
-  fare numeric not null,
   seats integer not null default 1,
-  qr_payload text,
-  date text,
+  date date not null default current_date,
   timestamp timestamp with time zone default timezone('utc'::text, now()) not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 6. BOOKINGS TABLE
+-- 9. BOOKINGS TABLE
 create table if not exists public.bookings (
   id text primary key,
   bus_id text references public.buses(id) on delete cascade,
   user_id uuid references auth.users(id) on delete set null,
-  from_stop text not null,
-  to_stop text not null,
+  from_stop uuid references public.stops(id) on delete set null,
+  to_stop uuid references public.stops(id) on delete set null,
   seats integer not null default 1,
   amount numeric not null,
   status text not null default 'Pending' check (status in ('Pending', 'Confirmed', 'Failed')),
+  transaction_id text references public.transactions(id) on delete set null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 7. COMPLAINTS TABLE
+-- 10. COMPLAINTS TABLE
 create table if not exists public.complaints (
   id serial primary key,
   bus_id text references public.buses(id) on delete cascade,
@@ -123,11 +137,11 @@ create table if not exists public.complaints (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 8. ALERTS TABLE
+-- 11. ALERTS TABLE
 create table if not exists public.alerts (
   id serial primary key,
   type text not null check (type in ('GPS_OFFLINE', 'HIGH_LOAD', 'LATE_TRIP', 'IDLE_BUS', 'SOS')),
-  message text not null,
+  message text,
   bus_id text references public.buses(id) on delete cascade,
   idle_duration integer,
   location jsonb,
@@ -136,17 +150,39 @@ create table if not exists public.alerts (
   user_id uuid references auth.users(id) on delete set null
 );
 
--- 9. STOPS TABLE
+-- Trigger to construct alert message dynamically from user_id and location on insert
+create or replace function public.trg_construct_alert_message()
+returns trigger
+language plpgsql
+security definer
+as $$
+declare
+  v_user_name text;
+begin
+  if new.type = 'SOS' and new.message is null then
+    select coalesce(raw_user_meta_data->>'name', 'Unknown') into v_user_name from auth.users where id = new.user_id;
+    new.message := 'CRITICAL: SOS triggered by citizen ' || coalesce(v_user_name, 'Unknown') || ' at lat: ' || coalesce((new.location->>'lat'), 'N/A') || ', lng: ' || coalesce((new.location->>'lng'), 'N/A');
+  end if;
+  return new;
+end;
+$$;
+
+create or replace trigger trg_alerts_message_insert
+before insert on public.alerts
+for each row
+execute function public.trg_construct_alert_message();
+
+-- 12. STOPS TABLE
 create table if not exists public.stops (
   id uuid default gen_random_uuid() primary key,
   name text not null unique,
-  district text,
+  district integer references public.districts(id) on delete set null,
   lat numeric,
   lng numeric,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 10. AUDIT LOGS TABLE
+-- 13. AUDIT LOGS TABLE
 create table if not exists public.audit_logs (
   id serial primary key,
   user_uuid uuid,

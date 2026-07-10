@@ -12,8 +12,11 @@ import {
   Globe, 
   ChevronDown, 
   Check, 
-  ArrowRight
+  ArrowRight,
+  QrCode,
+  ArrowLeft
 } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -53,6 +56,15 @@ export const DriverPage: React.FC = () => {
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [verificationResult, setVerificationResult] = useState<{ gps_verified: boolean; message: string } | null>(null);
 
+  // Bus Camera QR Scan states
+  const [isBusCameraActive, setIsBusCameraActive] = useState(false);
+  const [busHtml5QrCode, setBusHtml5QrCode] = useState<Html5Qrcode | null>(null);
+
+  // Scheduled trips self-allocation states
+  const [scheduledTrips, setScheduledTrips] = useState<any[]>([]);
+  const [loadingTrips, setLoadingTrips] = useState(false);
+  const [selectedTripId, setSelectedTripId] = useState<string>('');
+
   // Fetch buses on mount
   useEffect(() => {
     const fetchBuses = async () => {
@@ -76,6 +88,123 @@ export const DriverPage: React.FC = () => {
   const activeBus = (buses.length > 0 ? buses : BUS_FLEET).find(b => b.bus_id === activeBusId);
   const activeBusStops = activeBus ? activeBus.stops : [];
 
+  // Fetch scheduled trips for selected bus
+  useEffect(() => {
+    const fetchScheduledTrips = async () => {
+      if (!activeBusId) return;
+      setLoadingTrips(true);
+      try {
+        const { data, error } = await supabase
+          .from('trips')
+          .select('*, routes(name, stops)')
+          .eq('bus_id', activeBusId)
+          .in('status', ['SCHEDULED', 'PLANNED']);
+        if (!error && data) {
+          setScheduledTrips(data);
+        } else {
+          setScheduledTrips([]);
+        }
+      } catch (err) {
+        console.error('Error fetching scheduled trips:', err);
+        setScheduledTrips([]);
+      } finally {
+        setLoadingTrips(false);
+      }
+    };
+    fetchScheduledTrips();
+  }, [activeBusId]);
+
+  // Fetch logged in profile details to default Driver Employee ID
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const emailPrefix = user.email ? user.email.split('@')[0] : '';
+          const name = user.user_metadata?.name || user.user_metadata?.fullName || emailPrefix;
+          if (!localStorage.getItem('driver_id') && name) {
+            setDriverIdInput(name.toUpperCase());
+          }
+        }
+      } catch (err) {
+        console.error('Failed to retrieve user profile details:', err);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  // Bus Camera QR Scanner helpers
+  const startBusCamera = async () => {
+    try {
+      setIsBusCameraActive(true);
+      setTimeout(async () => {
+        try {
+          const scanner = new Html5Qrcode("bus-reader-driver");
+          setBusHtml5QrCode(scanner);
+          await scanner.start(
+            { facingMode: "environment" },
+            {
+              fps: 10,
+              qrbox: { width: 250, height: 250 }
+            },
+            (decodedText) => {
+              toast.success("Bus QR Code Scanned!");
+              scanner.stop().then(() => {
+                setIsBusCameraActive(false);
+              }).catch(console.error);
+              handleBusScanned(decodedText);
+            },
+            () => {}
+          );
+        } catch (err: any) {
+          toast.error("Failed to start camera device: " + err.message);
+          setIsBusCameraActive(false);
+        }
+      }, 100);
+    } catch (err: any) {
+      toast.error("Failed to initialize camera: " + err.message);
+      setIsBusCameraActive(false);
+    }
+  };
+
+  const stopBusCamera = async () => {
+    if (busHtml5QrCode && busHtml5QrCode.isScanning) {
+      try {
+        await busHtml5QrCode.stop();
+        setIsBusCameraActive(false);
+      } catch (err) {
+        console.error("Error stopping bus camera:", err);
+      }
+    }
+  };
+
+  const handleBusScanned = async (payload: string) => {
+    const cleanPayload = payload.trim().toUpperCase();
+    const matchedBus = (buses.length > 0 ? buses : BUS_FLEET).find(
+      b => b.bus_id.toUpperCase() === cleanPayload || b.number_plate.toUpperCase() === cleanPayload
+    );
+
+    if (!matchedBus) {
+      toast.error(`No bus registered with ID/plate "${payload}"`);
+      return;
+    }
+
+    try {
+      localStorage.setItem('driver_bus_id', matchedBus.bus_id);
+      localStorage.setItem('driver_route_name', matchedBus.route_name);
+      localStorage.setItem('driver_number_plate', matchedBus.number_plate);
+
+      setActiveBusId(matchedBus.bus_id);
+      setActiveRouteName(matchedBus.route_name);
+      setActiveNumberPlate(matchedBus.number_plate);
+
+      setCurrentView('DRIVER_DETAILS');
+      toast.success(`Bus ${matchedBus.number_plate} selected via QR!`);
+    } catch (err) {
+      toast.error('Failed to select bus.');
+    }
+  };
+
   // Determine starting view based on storage
   useEffect(() => {
     if (!activeBusId) {
@@ -84,7 +213,6 @@ export const DriverPage: React.FC = () => {
       setCurrentView('DRIVER_DETAILS');
     } else {
       setCurrentView('TRIP_ACTIVE');
-      // Periodically fetch trip state to check if Conductor also ended the trip
       fetchTripDetails(activeTripId);
     }
   }, [activeBusId, activeTripId]);
@@ -138,17 +266,6 @@ export const DriverPage: React.FC = () => {
   }, [currentView, activeTripId]);
 
   // Actions
-  const handleSelectBus = (bus: any) => {
-    setActiveBusId(bus.bus_id);
-    setActiveRouteName(bus.route_name);
-    setActiveNumberPlate(bus.number_plate);
-    localStorage.setItem('driver_bus_id', bus.bus_id);
-    localStorage.setItem('driver_route_name', bus.route_name);
-    localStorage.setItem('driver_number_plate', bus.number_plate);
-    setCurrentView('DRIVER_DETAILS');
-    toast.success(`Bus ${bus.number_plate} Selected`);
-  };
-
   const handleStartTrip = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!driverIdInput.trim()) {
@@ -158,8 +275,52 @@ export const DriverPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const generatedTripId = `TRIP-${Math.floor(100000 + Math.random() * 900000)}`;
+      let tripId = selectedTripId;
       
+      // Fallback: create custom trip if no scheduled trip selected
+      if (!tripId) {
+        tripId = `TRIP-${Math.floor(100000 + Math.random() * 900000)}`;
+        
+        let routeId = null;
+        let bus = null;
+        try {
+          const { data } = await supabase.rpc('rpc_get_bus_by_id', { bus_id: activeBusId });
+          bus = data;
+          routeId = (bus as any)?.route_id || null;
+        } catch (err) {
+          console.warn('Failed to query bus info from Supabase:', err);
+        }
+
+        try {
+          const { error } = await supabase.rpc('rpc_add_trip', {
+            trip_id: tripId,
+            route_id: routeId,
+            bus_id: activeBusId,
+            driver_name: driverIdInput, // Use Employee ID string
+            conductor_name: '',
+            status: 'RUNNING',
+            start_time: new Date().toLocaleTimeString(),
+            district: (bus as any)?.district || 'Tiruppur',
+            zone: ''
+          });
+          if (error) throw error;
+        } catch (err) {
+          console.warn('Supabase trips insert returned error, using local fallback:', err);
+        }
+      } else {
+        // A scheduled trip is selected! Let's allocate driver ID to driver_id column and status to RUNNING
+        const { error } = await supabase
+          .from('trips')
+          .update({
+            driver_id: driverIdInput, // Allocate driver ID
+            status: 'RUNNING',
+            actual_start_time: new Date().toISOString()
+          })
+          .eq('id', tripId);
+        
+        if (error) throw error;
+      }
+
       // Get current GPS coords
       let lat = 11.1085;
       let lng = 77.3411;
@@ -178,13 +339,13 @@ export const DriverPage: React.FC = () => {
 
       setGpsCoords({ lat, lng });
 
-      // Call database RPC
-      await driverApi.startTrip(generatedTripId, lat, lng);
+      // Call database startTrip RPC
+      await driverApi.startTrip(tripId, lat, lng);
       
       // Keep track of active trip locally
       localStorage.setItem('driver_id', driverIdInput);
-      localStorage.setItem('driver_trip_id', generatedTripId);
-      setActiveTripId(generatedTripId);
+      localStorage.setItem('driver_trip_id', tripId);
+      setActiveTripId(tripId);
       setCurrentView('TRIP_ACTIVE');
       toast.success('Trip Started successfully. Live telemetry is now active.');
     } catch (err: any) {
@@ -346,28 +507,75 @@ export const DriverPage: React.FC = () => {
               className="space-y-6"
             >
               <div className="text-center space-y-2">
-                <h2 className="text-xl font-black uppercase tracking-tight text-white">Select Your Vehicle</h2>
-                <p className="text-xs text-slate-400">Choose the bus you are operating today to proceed</p>
+                <h2 className="text-xl font-black uppercase tracking-tight text-white">Scan Bus QR</h2>
+                <p className="text-xs text-slate-400">Scan the QR code in the bus to operate today</p>
               </div>
 
-              <div className="grid gap-3">
-                {(buses.length > 0 ? buses : BUS_FLEET).map((bus) => (
+              {isBusCameraActive ? (
+                <div className="space-y-4">
+                  <div id="bus-reader-driver" className="w-full overflow-hidden rounded border-2 border-slate-800 bg-slate-900" style={{ minHeight: '250px' }} />
                   <button
-                    key={bus.bus_id}
-                    onClick={() => handleSelectBus(bus)}
-                    className="p-5 bg-slate-900 hover:bg-slate-855 border border-slate-800 hover:border-primary/40 transition-all text-left flex items-center justify-between group shadow-xl relative overflow-hidden"
+                    onClick={stopBusCamera}
+                    className="w-full py-4 bg-rose-955 border border-rose-900/50 hover:bg-rose-900 text-rose-400 font-black text-xs uppercase tracking-widest transition-all"
                   >
-                    <div className="space-y-1 z-10">
-                      <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Number Plate</p>
-                      <h3 className="text-lg font-black text-white group-hover:text-primary transition-colors">{bus.number_plate}</h3>
-                      <p className="text-xs text-slate-400 font-medium">{bus.route_name}</p>
-                    </div>
-                    <div className="z-10 w-10 h-10 bg-slate-800 group-hover:bg-primary group-hover:text-white text-primary flex items-center justify-center transition-all">
-                      <ArrowRight size={16} />
-                    </div>
+                    Cancel Scanner
                   </button>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  <button
+                    onClick={startBusCamera}
+                    className="w-full py-6 bg-primary hover:bg-primary/90 text-white transition-all font-black text-sm uppercase tracking-[0.25em] flex items-center justify-center gap-3 shadow-xl"
+                  >
+                    <QrCode size={22} />
+                    Open QR Scanner
+                  </button>
+
+                  <div className="relative flex items-center my-2">
+                    <div className="flex-grow border-t border-slate-800"></div>
+                    <span className="flex-shrink mx-4 text-[10px] font-black uppercase tracking-wider text-slate-500">OR</span>
+                    <div className="flex-grow border-t border-slate-800"></div>
+                  </div>
+
+                  {/* Manual Input Fallback */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-450 uppercase tracking-widest block ml-1">Enter plate number manually</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. TN 38 AB 1234"
+                        className="flex-1 px-4 py-3.5 bg-slate-900 border border-slate-800 text-sm font-bold text-white rounded focus:outline-none focus:border-primary uppercase"
+                        id="manual-bus-plate-driver"
+                      />
+                      <button
+                        onClick={() => {
+                          const val = (document.getElementById('manual-bus-plate-driver') as HTMLInputElement)?.value;
+                          if (val) handleBusScanned(val);
+                        }}
+                        className="px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-white font-black text-xs uppercase tracking-wider transition-all"
+                      >
+                        Submit
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Testing simulator panel */}
+                  <div className="bg-slate-900 border border-slate-800 p-5 space-y-2.5">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Simulator Shortcuts (Test QR)</span>
+                    <div className="flex flex-wrap gap-2">
+                      {(buses.length > 0 ? buses : BUS_FLEET).map(bus => (
+                        <button
+                          key={bus.bus_id}
+                          onClick={() => handleBusScanned(bus.number_plate)}
+                          className="px-3.5 py-2 bg-slate-800 hover:bg-primary hover:text-white border border-slate-750 text-[10px] font-black uppercase text-slate-300 transition-all"
+                        >
+                          Scan {bus.number_plate.split(' ').slice(2).join(' ') || bus.number_plate}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -383,13 +591,22 @@ export const DriverPage: React.FC = () => {
               <div className="p-5 bg-slate-900 border border-slate-800 space-y-1">
                 <div className="flex justify-between items-center">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Active Vehicle</p>
-                  <button onClick={() => setCurrentView('SELECT_BUS')} className="text-[10px] font-bold text-primary uppercase hover:underline">Change</button>
+                  <button 
+                    onClick={() => {
+                      localStorage.removeItem('driver_bus_id');
+                      setActiveBusId(null);
+                      setCurrentView('SELECT_BUS');
+                    }} 
+                    className="text-[10px] font-bold text-primary uppercase hover:underline"
+                  >
+                    Rescan Bus
+                  </button>
                 </div>
                 <h3 className="text-lg font-black text-white">{activeNumberPlate}</h3>
                 <p className="text-xs text-slate-400">{activeRouteName}</p>
               </div>
 
-              <form onSubmit={handleStartTrip} className="space-y-4">
+              <form onSubmit={handleStartTrip} className="space-y-5">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Driver Employee ID</label>
                   <div className="relative">
@@ -405,6 +622,74 @@ export const DriverPage: React.FC = () => {
                       required
                     />
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Select Scheduled Trip</label>
+                  
+                  {loadingTrips ? (
+                    <div className="flex items-center gap-2 text-slate-500 py-3 text-xs font-bold">
+                      <Loader2 className="animate-spin" size={14} />
+                      <span>Fetching route schedules...</span>
+                    </div>
+                  ) : scheduledTrips.length === 0 ? (
+                    <div className="p-4 bg-slate-900 text-slate-350 border border-slate-800 rounded text-xs font-bold space-y-2">
+                      <p>No scheduled trips found for this bus today.</p>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTripId('')}
+                        className={`w-full py-3.5 border text-xs font-black uppercase tracking-wider text-center transition-all ${
+                          selectedTripId === '' ? 'bg-primary text-white border-primary' : 'bg-transparent text-slate-400 border-slate-800'
+                        }`}
+                      >
+                        Create Custom Run (Fallback)
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto p-1 bg-slate-900/50 border border-slate-850 rounded">
+                      {scheduledTrips.map(trip => {
+                        const isSelected = selectedTripId === trip.id;
+                        return (
+                          <button
+                            type="button"
+                            key={trip.id}
+                            onClick={() => setSelectedTripId(trip.id)}
+                            className={`w-full p-4.5 text-left transition-all border flex items-center justify-between ${
+                              isSelected 
+                                ? 'bg-slate-850 border-primary text-white' 
+                                : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-300'
+                            }`}
+                          >
+                            <div>
+                              <p className="text-xs font-black text-white">Trip ID: #{trip.id}</p>
+                              <p className="text-[10px] text-slate-455 font-bold uppercase mt-1">Start Time: {trip.start_time || 'N/A'}</p>
+                            </div>
+                            {isSelected && (
+                              <div className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center shrink-0">
+                                <Check size={12} strokeWidth={3} />
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTripId('')}
+                        className={`w-full p-4.5 text-left transition-all border flex items-center justify-between ${
+                          selectedTripId === '' 
+                            ? 'bg-slate-855 border-primary text-white font-black' 
+                            : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        <span>Create Custom Run (Fallback)</span>
+                        {selectedTripId === '' && (
+                          <div className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center shrink-0">
+                            <Check size={12} strokeWidth={3} />
+                          </div>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <button
@@ -447,7 +732,7 @@ export const DriverPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-3 border-b border-slate-800 pb-4">
                   <div className="flex items-center gap-3">
                     <Clock size={16} className="text-primary" />
                     <div>
@@ -464,6 +749,30 @@ export const DriverPage: React.FC = () => {
                         {gpsCoords ? `${gpsCoords.lat.toFixed(6)}, ${gpsCoords.lng.toFixed(6)}` : 'Detecting GPS...'}
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                {/* Route stops sequence */}
+                <div className="space-y-2 pt-1">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Route Stops Sequence</p>
+                  <div className="bg-slate-950 border border-slate-850 p-4.5 rounded max-h-56 overflow-y-auto space-y-3">
+                    {activeBusStops.length > 0 ? (
+                      activeBusStops.map((stop, index) => (
+                        <div key={index} className="flex items-center gap-3">
+                          <div className="flex flex-col items-center">
+                            <div className="w-4 h-4 rounded-full border border-primary bg-slate-900 flex items-center justify-center text-[9px] font-black text-primary shrink-0">
+                              {index + 1}
+                            </div>
+                            {index < activeBusStops.length - 1 && (
+                              <div className="w-[1px] h-5 bg-slate-800" />
+                            )}
+                          </div>
+                          <span className="text-xs font-bold text-slate-250 leading-none">{stop}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500 font-bold uppercase tracking-wider text-center py-4">No stops sequence loaded</p>
+                    )}
                   </div>
                 </div>
               </div>

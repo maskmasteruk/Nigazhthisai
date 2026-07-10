@@ -2,27 +2,27 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { MainLayout } from './components/layout/MainLayout';
-import { LoginPage } from './pages/Login';
-import { Dashboard } from './pages/Dashboard';
-import { RoutesList } from './pages/operations/RoutesList';
-import { StopsList } from './pages/operations/StopsList';
-import { BusesList } from './pages/operations/BusesList';
-import { TripsList } from './pages/operations/TripsList';
-import { OperationalAlerts } from './pages/operations/OperationalAlerts';
-import { OperationalRouteCreate } from './pages/operations/OperationalRouteCreate';
-import { OperationalStopsManage } from './pages/operations/OperationalStopsManage';
-import { OperationalTripSchedule } from './pages/operations/OperationalTripSchedule';
-import { OperationalDone } from './pages/operations/OperationalDone';
-import { LiveMonitoring } from './pages/LiveMonitoring';
-import { Revenue } from './pages/Revenue';
-import { Users } from './pages/Users';
-import { ConductorPage } from './pages/Conductor';
-import { PassengerPage } from './pages/Passenger';
-import { DriverPage } from './pages/Driver';
-import { 
-  Settings, 
-  Support 
-} from './pages/Stubs';
+
+// Lazy loaded page components
+const LoginPage = React.lazy(() => import('./pages/Login').then(m => ({ default: m.LoginPage })));
+const Dashboard = React.lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const RoutesList = React.lazy(() => import('./pages/operations/RoutesList').then(m => ({ default: m.RoutesList })));
+const StopsList = React.lazy(() => import('./pages/operations/StopsList').then(m => ({ default: m.StopsList })));
+const BusesList = React.lazy(() => import('./pages/operations/BusesList').then(m => ({ default: m.BusesList })));
+const TripsList = React.lazy(() => import('./pages/operations/TripsList').then(m => ({ default: m.TripsList })));
+const OperationalAlerts = React.lazy(() => import('./pages/operations/OperationalAlerts').then(m => ({ default: m.OperationalAlerts })));
+const OperationalRouteCreate = React.lazy(() => import('./pages/operations/OperationalRouteCreate').then(m => ({ default: m.OperationalRouteCreate })));
+const OperationalStopsManage = React.lazy(() => import('./pages/operations/OperationalStopsManage').then(m => ({ default: m.OperationalStopsManage })));
+const OperationalTripSchedule = React.lazy(() => import('./pages/operations/OperationalTripSchedule').then(m => ({ default: m.OperationalTripSchedule })));
+const OperationalDone = React.lazy(() => import('./pages/operations/OperationalDone').then(m => ({ default: m.OperationalDone })));
+const LiveMonitoring = React.lazy(() => import('./pages/LiveMonitoring').then(m => ({ default: m.LiveMonitoring })));
+const Revenue = React.lazy(() => import('./pages/Revenue').then(m => ({ default: m.Revenue })));
+const Users = React.lazy(() => import('./pages/Users').then(m => ({ default: m.Users })));
+const ConductorPage = React.lazy(() => import('./pages/Conductor').then(m => ({ default: m.ConductorPage })));
+const PassengerPage = React.lazy(() => import('./pages/Passenger').then(m => ({ default: m.PassengerPage })));
+const DriverPage = React.lazy(() => import('./pages/Driver').then(m => ({ default: m.DriverPage })));
+const Settings = React.lazy(() => import('./pages/Stubs').then(m => ({ default: m.Settings })));
+const Support = React.lazy(() => import('./pages/Stubs').then(m => ({ default: m.Support })));
 
 import { LanguageProvider } from './lib/i18n';
 import { isFeatureEnabled } from './lib/featureFlags';
@@ -53,6 +53,17 @@ const ProtectedRoute: React.FC<{
   }
 
   return useLayout ? <MainLayout>{children}</MainLayout> : <>{children}</>;
+};
+
+const LoadingFallback: React.FC = () => {
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="text-center space-y-4">
+        <Loader2 className="animate-spin text-[#D97F00] mx-auto" size={48} />
+        <p className="text-white text-xs uppercase tracking-[0.3em] font-extrabold">Loading...</p>
+      </div>
+    </div>
+  );
 };
 
 const App: React.FC = () => {
@@ -132,7 +143,8 @@ const App: React.FC = () => {
     <LanguageProvider>
       <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Toaster position="top-right" richColors />
-        <Routes>
+        <React.Suspense fallback={<LoadingFallback />}>
+          <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
 
@@ -258,7 +270,8 @@ const App: React.FC = () => {
           
           {/* 404 Redirect */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+          </Routes>
+        </React.Suspense>
       </Router>
     </LanguageProvider>
   );

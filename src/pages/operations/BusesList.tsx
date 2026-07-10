@@ -23,7 +23,6 @@ export const BusesList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('All');
-  const [selectedZone, setSelectedZone] = useState('All');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingBus, setEditingBus] = useState<any | null>(null);
   const [editFormData, setEditFormData] = useState({
@@ -32,7 +31,6 @@ export const BusesList: React.FC = () => {
     type: 'NON-AC',
     etm_id: '',
     district: '',
-    zone: '',
     status: 'ACTIVE'
   });
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -40,15 +38,13 @@ export const BusesList: React.FC = () => {
   const isMaster = userRole === 'MASTER_ADMIN';
 
   const DISTRICTS = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur', 'Trichy', 'Erode'];
-  const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
   const [submitting, setSubmitting] = useState(false);
   const [newBus, setNewBus] = useState({
     reg_no: '',
     model: '',
     type: 'NON-AC',
     etm_id: '',
-    district: '',
-    zone: ''
+    district: ''
   });
 
   const fetchBuses = async () => {
@@ -69,8 +65,8 @@ export const BusesList: React.FC = () => {
 
   const handleAddBus = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newBus.reg_no || !newBus.model || !newBus.etm_id || !newBus.district || !newBus.zone) {
-      toast.error('Please fill all mandatory fields including District and Zone');
+    if (!newBus.reg_no || !newBus.model || !newBus.etm_id || !newBus.district) {
+      toast.error('Please fill all mandatory fields including District');
       return;
     }
 
@@ -79,7 +75,7 @@ export const BusesList: React.FC = () => {
       await adminApi.addBus(newBus);
       toast.success('Bus added successfully');
       setIsAddModalOpen(false);
-      setNewBus({ reg_no: '', model: '', type: 'NON-AC', etm_id: '', district: '', zone: '' });
+      setNewBus({ reg_no: '', model: '', type: 'NON-AC', etm_id: '', district: '' });
       fetchBuses();
     } catch (error) {
       toast.error('Failed to add bus');
@@ -96,7 +92,6 @@ export const BusesList: React.FC = () => {
       type: bus.type || 'NON-AC',
       etm_id: bus.etm_id || '',
       district: bus.district || '',
-      zone: bus.zone || '',
       status: bus.status || 'ACTIVE'
     });
     setIsEditModalOpen(true);
@@ -104,7 +99,7 @@ export const BusesList: React.FC = () => {
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editFormData.reg_no || !editFormData.model || !editFormData.etm_id || !editFormData.district || !editFormData.zone) {
+    if (!editFormData.reg_no || !editFormData.model || !editFormData.etm_id || !editFormData.district) {
       toast.error('Please fill all mandatory fields');
       return;
     }
@@ -139,9 +134,8 @@ export const BusesList: React.FC = () => {
                          bus.etm_id.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesDistrict = selectedDistrict === 'All' || bus.district === selectedDistrict;
-    const matchesZone = selectedZone === 'All' || bus.zone === selectedZone;
     
-    return matchesSearch && matchesDistrict && matchesZone;
+    return matchesSearch && matchesDistrict;
   });
 
   return (
@@ -171,19 +165,6 @@ export const BusesList: React.FC = () => {
                 >
                   {DISTRICTS.map(d => (
                     <option key={d} value={d}>{d} DISTRICT</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="relative group">
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <select 
-                  value={selectedZone}
-                  onChange={(e) => setSelectedZone(e.target.value)}
-                  className="pl-9 pr-8 py-2 bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs font-black uppercase tracking-widest text-slate-700 appearance-none cursor-pointer"
-                >
-                  {ZONES.map(z => (
-                    <option key={z} value={z}>{z} ZONE</option>
                   ))}
                 </select>
               </div>
@@ -370,8 +351,7 @@ export const BusesList: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 w-full">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">District</label>
                   <select
                     value={newBus.district}
@@ -384,21 +364,6 @@ export const BusesList: React.FC = () => {
                     ))}
                   </select>
                 </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Zone</label>
-                  <select
-                    value={newBus.zone}
-                    onChange={(e) => setNewBus({ ...newBus, zone: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
-                  >
-                    <option value="">Select Zone</option>
-                    {ZONES.filter(z => z !== 'All').map(z => (
-                      <option key={z} value={z}>{z}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button
@@ -484,34 +449,18 @@ export const BusesList: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">District</label>
-                  <select
-                    value={editFormData.district}
-                    onChange={(e) => setEditFormData({ ...editFormData, district: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
-                  >
-                    <option value="">Select District</option>
-                    {DISTRICTS.filter(d => d !== 'All').map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Zone</label>
-                  <select
-                    value={editFormData.zone}
-                    onChange={(e) => setEditFormData({ ...editFormData, zone: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
-                  >
-                    <option value="">Select Zone</option>
-                    {ZONES.filter(z => z !== 'All').map(z => (
-                      <option key={z} value={z}>{z}</option>
-                    ))}
-                  </select>
-                </div>
+              <div className="space-y-1.5 w-full">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">District</label>
+                <select
+                  value={editFormData.district}
+                  onChange={(e) => setEditFormData({ ...editFormData, district: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
+                >
+                  <option value="">Select District</option>
+                  {DISTRICTS.filter(d => d !== 'All').map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="space-y-1.5">

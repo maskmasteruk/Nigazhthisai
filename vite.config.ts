@@ -20,5 +20,26 @@ export default defineConfig(({ mode }) => {
       allowedHosts: ['.trycloudflare.com'],
       hmr: process.env.DISABLE_HMR !== 'true',
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('recharts') || id.includes('d3')) {
+                return 'vendor-recharts';
+              }
+              if (id.includes('html5-qrcode') || id.includes('qrcode.react')) {
+                return 'vendor-qrcode';
+              }
+              if (id.includes('@supabase')) {
+                return 'vendor-supabase';
+              }
+              // Group React and other core dependencies together to avoid circular chunking warnings
+              return 'vendor-core';
+            }
+          }
+        }
+      }
+    },
   };
 });

@@ -163,7 +163,6 @@ export const OperationalTripSchedule: React.FC = () => {
         capacity: Number(quickBusData.capacity),
         fare: Number(quickBusData.fare),
         district: route.district,
-        zone: route.zone,
         status: 'ACTIVE'
       });
 
@@ -192,22 +191,17 @@ export const OperationalTripSchedule: React.FC = () => {
       toast.error('Please allocate a bus for this trip');
       return;
     }
-    if (!tripData.driver_name.trim() || !tripData.conductor_name.trim()) {
-      toast.error('Driver and Conductor names are required');
-      return;
-    }
 
     setIsSubmitting(true);
     try {
       const scheduledTrip = await adminApi.scheduleTrip({
         route_id: route.id,
         bus_id: tripData.bus_id,
-        driver_name: tripData.driver_name.trim(),
-        conductor_name: tripData.conductor_name.trim(),
+        driver_name: '',
+        conductor_name: '',
         status: 'SCHEDULED',
         actual_start_time: tripData.start_time,
-        district: route.district,
-        zone: route.zone
+        district: route.district
       });
 
       toast.success('Trip scheduled and linked successfully!');
@@ -388,75 +382,12 @@ export const OperationalTripSchedule: React.FC = () => {
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Operations Base</label>
                   <div className="px-5 py-4 bg-slate-100 text-slate-500 font-bold border-2 border-slate-200 rounded-lg text-sm h-[56px] flex items-center">
-                    District: {route.district} ({route.zone} Zone)
+                    District: {route.district}
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Allocated Driver</label>
-                  {isLoadingUsers ? (
-                    <div className="px-5 py-4 bg-slate-50 border-2 border-slate-200 text-slate-400 text-xs font-bold flex items-center gap-2 rounded-lg">
-                      <Loader2 size={12} className="animate-spin" />
-                      Loading drivers...
-                    </div>
-                  ) : drivers.length === 0 ? (
-                    <div className="space-y-2">
-                      <input 
-                        required
-                        className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg text-sm" 
-                        placeholder="Enter driver name manually"
-                        value={tripData.driver_name}
-                        onChange={e => setTripData({...tripData, driver_name: e.target.value})}
-                      />
-                      <p className="text-[9px] text-rose-500 font-bold uppercase tracking-wide ml-1">No active drivers in DB. Type name manually or create in Users.</p>
-                    </div>
-                  ) : (
-                    <select
-                      className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg appearance-none cursor-pointer text-sm"
-                      value={tripData.driver_name}
-                      onChange={e => setTripData({...tripData, driver_name: e.target.value})}
-                    >
-                      <option value="">-- Select Driver --</option>
-                      {drivers.map(d => (
-                        <option key={d.id} value={d.name}>{d.name} ({d.phone || d.email})</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Allocated Conductor</label>
-                  {isLoadingUsers ? (
-                    <div className="px-5 py-4 bg-slate-50 border-2 border-slate-200 text-slate-400 text-xs font-bold flex items-center gap-2 rounded-lg">
-                      <Loader2 size={12} className="animate-spin" />
-                      Loading conductors...
-                    </div>
-                  ) : conductors.length === 0 ? (
-                    <div className="space-y-2">
-                      <input 
-                        required
-                        className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg text-sm" 
-                        placeholder="Enter conductor name manually"
-                        value={tripData.conductor_name}
-                        onChange={e => setTripData({...tripData, conductor_name: e.target.value})}
-                      />
-                      <p className="text-[9px] text-rose-500 font-bold uppercase tracking-wide ml-1">No active conductors in DB. Type name manually or create in Users.</p>
-                    </div>
-                  ) : (
-                    <select
-                      className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg appearance-none cursor-pointer text-sm"
-                      value={tripData.conductor_name}
-                      onChange={e => setTripData({...tripData, conductor_name: e.target.value})}
-                    >
-                      <option value="">-- Select Conductor --</option>
-                      {conductors.map(c => (
-                        <option key={c.id} value={c.name}>{c.name} ({c.phone || c.email})</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
+              {/* Conductor and Driver allocations are managed via self-allocation during startup */}
 
               <div className="pt-6 border-t-2 border-slate-100 flex justify-between items-center">
                 <button 

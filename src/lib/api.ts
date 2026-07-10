@@ -70,44 +70,49 @@ export const adminApi = {
     };
   },
 
-  getDashboardStats: async (filters?: { district?: string; zone?: string }) => {
-    const [tripsRes, ticketsRes, alertsRes, passengerCountRes] = await Promise.all([
-      supabase.rpc('rpc_get_all_trips', { district_filter: filters?.district || null, zone_filter: filters?.zone || null }),
-      supabase.rpc('rpc_get_all_tickets', { bus_name_filter: filters?.district || null }),
+  getDashboardStats: async (filters?: { district?: string }) => {
+    const districtFilter = filters?.district || null;
+
+    const [tripsRes, revenueRes, alertsRes, passengerCountRes] = await Promise.all([
+      supabase.rpc('rpc_get_trips_detailed'),
+      supabase.rpc('rpc_get_daily_revenue'),
       supabase.rpc('rpc_get_pending_alerts'),
       supabase.rpc('rpc_get_total_passengers')
     ]);
 
-    if (tripsRes.error) throw tripsRes.error;
-    if (ticketsRes.error) throw ticketsRes.error;
-    if (alertsRes.error) throw alertsRes.error;
-    if (passengerCountRes.error) throw passengerCountRes.error;
+    let trips = (tripsRes.error ? [] : tripsRes.data) || [];
+    const revenueRows = (revenueRes.error ? [] : revenueRes.data) || [];
+    const alerts = (alertsRes.error ? [] : alertsRes.data) || [];
+    const totalPassengers = (passengerCountRes.error ? 0 : passengerCountRes.data) || 0;
 
-    const trips = tripsRes.data || [];
-    const tickets = ticketsRes.data || [];
-    const alerts = alertsRes.data || [];
-    const totalPassengers = passengerCountRes.data || 0;
+    if (tripsRes.error) console.warn('rpc_get_trips_detailed error:', tripsRes.error.message);
+    if (revenueRes.error) console.warn('rpc_get_daily_revenue error:', revenueRes.error.message);
+    if (alertsRes.error) console.warn('rpc_get_pending_alerts error:', alertsRes.error.message);
+
+    // Filter trips by district client-side if filter provided
+    if (districtFilter && districtFilter !== 'All') {
+      trips = trips.filter((t: any) => t.district === districtFilter);
+    }
 
     const totalTrips = trips.length;
     const activeTrips = trips.filter((t: any) => t.status === 'RUNNING').length;
     const completedTrips = trips.filter((t: any) => t.status === 'COMPLETED').length;
 
-    const totalTickets = tickets.length;
-    const appTickets = tickets.filter((t: any) => t.channel === 'APP').length;
-    const etmTickets = tickets.filter((t: any) => t.channel === 'ETM').length;
+    // Aggregate ticket & revenue stats from rpc_get_daily_revenue
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayRows = revenueRows.filter((r: any) => r.date === todayStr || r.date?.startsWith(todayStr));
+    const allRows = revenueRows;
 
-    const totalRevenue = tickets.reduce((sum: number, t: any) => sum + Number(t.fare), 0);
+    const totalTickets = todayRows.reduce((s: number, r: any) => s + Number(r.total_tickets_sold || 0), 0);
+    const appTickets = todayRows
+      .filter((r: any) => r.channel === 'passenger')
+      .reduce((s: number, r: any) => s + Number(r.total_tickets_sold || 0), 0);
+    const etmTickets = todayRows
+      .filter((r: any) => r.channel === 'conductor')
+      .reduce((s: number, r: any) => s + Number(r.total_tickets_sold || 0), 0);
+    const totalRevenue = allRows.reduce((s: number, r: any) => s + Number(r.total_revenue || 0), 0);
 
-    const routeRevenues: { [key: string]: number } = {};
-    tickets.forEach((t: any) => {
-      const routeName = t.bus_name || 'General Routes';
-      routeRevenues[routeName] = (routeRevenues[routeName] || 0) + Number(t.fare);
-    });
-
-    const topRoutes = Object.entries(routeRevenues)
-      .map(([route_name, revenue]) => ({ route_name, revenue }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 3);
+    const topRoutes: { route_name: string; revenue: number }[] = [];
 
     return {
       today_trips: { total: totalTrips, active: activeTrips, completed: completedTrips },
@@ -132,13 +137,13 @@ export const adminApi = {
 
   getTrips: async () => {
     const { data, error } = await supabase.rpc('rpc_get_trips_detailed');
-    if (error) throw error;
+    if (error) { console.warn('rpc_get_trips_detailed error:', error.message); return []; }
     return data || [];
   },
 
   getLiveTrips: async () => {
     const { data, error } = await supabase.rpc('rpc_get_live_trips_detailed');
-    if (error) throw error;
+    if (error) { console.warn('rpc_get_live_trips_detailed error:', error.message); return []; }
     return (data || []).map((t: any) => ({
       id: t.id,
       bus_id: t.bus_no,
@@ -151,69 +156,43 @@ export const adminApi = {
       is_idle: t.is_idle,
       idle_minutes: t.idle_minutes,
       district: t.district,
-      zone: t.zone,
+      zone: '',
       stops: t.stops || [],
       current_segment: t.current_segment || ''
     }));
   },
 
-  getRevenueData: async (filters?: { district?: string; zone?: string }) => {
-    // Fetch from view_daily_revenue view
-    const { data: revenueRows, error: revError } = await supabase
-      .from('view_daily_revenue')
-      .select('*');
-    if (revError) throw revError;
+  getRevenueData: async (filters?: { district?: string }) => {
+    // Use rpc_get_daily_revenue exclusively — rpc_get_all_tickets is removed
+    const { data: revenueRows, error: revError } = await supabase.rpc('rpc_get_daily_revenue');
+    if (revError) console.warn('rpc_get_daily_revenue error:', revError.message);
+    const safeRevRows = (revenueRows || []) as Array<{ date: string; channel: string; total_tickets_sold: number; total_passengers: number; total_revenue: number }>;
 
-    // Fetch all tickets
-    const { data: tickets, error } = await supabase.rpc('rpc_get_all_tickets');
-    if (error) throw error;
-
-    const totalRevenue = tickets?.reduce((sum: number, t: any) => sum + Number(t.fare), 0) || 0;
+    const totalRevenue = safeRevRows.reduce((s, r) => s + Number(r.total_revenue || 0), 0);
 
     const monthlyRevenues: { [key: string]: number } = {};
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-    // Aggregate monthly data from view_daily_revenue
-    revenueRows?.forEach((row: any) => {
+    safeRevRows.forEach((row) => {
       const dateObj = new Date(row.date);
       if (!isNaN(dateObj.getTime())) {
         const mName = dateObj.toLocaleString('en-US', { month: 'short' });
-        monthlyRevenues[mName] = (monthlyRevenues[mName] || 0) + Number(row.total_revenue);
-      } else {
-        // Fallback for custom date formats
-        const match = row.date?.match(/^[0-9]{4}-([0-9]{2})-[0-9]{2}$/);
-        if (match) {
-          const monthIdx = parseInt(match[1], 10) - 1;
-          if (monthIdx >= 0 && monthIdx < 12) {
-            const mName = monthNames[monthIdx];
-            monthlyRevenues[mName] = (monthlyRevenues[mName] || 0) + Number(row.total_revenue);
-          }
-        }
+        monthlyRevenues[mName] = (monthlyRevenues[mName] || 0) + Number(row.total_revenue || 0);
       }
     });
-
-    // If no view data is aggregated yet, calculate directly from tickets
-    if (Object.keys(monthlyRevenues).length === 0) {
-      tickets?.forEach((t: any) => {
-        const dateObj = new Date(t.timestamp);
-        if (!isNaN(dateObj.getTime())) {
-          const mName = dateObj.toLocaleString('en-US', { month: 'short' });
-          monthlyRevenues[mName] = (monthlyRevenues[mName] || 0) + Number(t.fare);
-        }
-      });
-    }
 
     const monthly_data = monthNames.map(month => ({
       month,
       revenue: monthlyRevenues[month] || 0
     }));
 
-    const routeRevenues: { [key: string]: number } = {};
-    tickets?.forEach((t: any) => {
-      const routeName = t.bus_name || 'General Routes';
-      routeRevenues[routeName] = (routeRevenues[routeName] || 0) + Number(t.fare);
+    // Channel breakdown as route_revenue proxy
+    const channelRevenues: { [key: string]: number } = {};
+    safeRevRows.forEach((r) => {
+      const label = r.channel === 'passenger' ? 'App Bookings' : r.channel === 'conductor' ? 'ETM / Conductor' : r.channel;
+      channelRevenues[label] = (channelRevenues[label] || 0) + Number(r.total_revenue || 0);
     });
-    const route_revenue = Object.entries(routeRevenues).map(([name, revenue]) => ({ name, revenue }));
+    const route_revenue = Object.entries(channelRevenues).map(([name, revenue]) => ({ name, revenue }));
 
     return {
       total_revenue: totalRevenue,
@@ -224,6 +203,15 @@ export const adminApi = {
 
   acknowledgeAlert: async (id: any) => {
     const { error } = await supabase.rpc('rpc_acknowledge_alert', { alert_id: Number(id) });
+    if (error) throw error;
+    return { success: true };
+  },
+
+  resolveAlert: async (id: any) => {
+    const { error } = await supabase
+      .from('alerts')
+      .update({ status: 'RESOLVED' })
+      .eq('id', Number(id));
     if (error) throw error;
     return { success: true };
   },
@@ -257,10 +245,9 @@ export const adminApi = {
         location,
         status,
         created_at,
+        user_id,
         buses (
           registration_number,
-          district,
-          zone,
           current_lat,
           current_lng
         )
@@ -325,16 +312,13 @@ export const adminApi = {
 
   addBus: async (busData: any) => {
     const { data, error } = await supabase.rpc('rpc_add_bus', {
-      bus_id: busData.id || `bus-${Math.floor(1000 + Math.random() * 9000)}`,
+      bus_id: busData.id || `BUS-${Math.floor(100000 + Math.random() * 900000)}`,
       reg_no: busData.reg_no || busData.registration_number,
-      model: busData.model || '',
-      type: busData.type || 'NON-AC',
-      etm_id: busData.etm_id || '',
       route_id: busData.route_id ? Number(busData.route_id) : null,
       capacity: Number(busData.capacity || 50),
       fare: Number(busData.fare || 15),
       district: busData.district,
-      zone: busData.zone,
+      zone: '',
       bus_status: busData.status || 'STOPPED'
     });
     if (error) throw error;
@@ -348,8 +332,6 @@ export const adminApi = {
     const { data, error } = await supabase.rpc('rpc_add_route', {
       code: routeData.code,
       name: routeData.name,
-      district: routeData.district,
-      zone: routeData.zone,
       stops: stopsValue
     });
     if (error) throw error;
@@ -366,7 +348,7 @@ export const adminApi = {
       status: tripData.status || 'SCHEDULED',
       start_time: tripData.start_time || tripData.actual_start_time || null,
       district: tripData.district || null,
-      zone: tripData.zone || null
+      zone: ''
     });
     if (error) throw error;
     return data;
@@ -391,7 +373,7 @@ export const adminApi = {
       capacity: Number(busData.capacity || 50),
       fare: Number(busData.fare || 15),
       district: busData.district,
-      zone: busData.zone,
+      zone: '',
       bus_status: busData.status
     });
     if (error) throw error;
@@ -400,14 +382,12 @@ export const adminApi = {
 
   updateRoute: async (id: any, routeData: any) => {
     const stopsVal = Array.isArray(routeData.stops) ? routeData.stops : JSON.parse(routeData.stops);
-    const { error } = await supabase
-      .from('routes')
-      .update({
-        code: routeData.code,
-        name: routeData.name,
-        stops: stopsVal
-      })
-      .eq('id', Number(id));
+    const { error } = await supabase.rpc('rpc_update_route', {
+      route_id: Number(id),
+      code: routeData.code,
+      name: routeData.name,
+      stops: stopsVal
+    });
     if (error) throw error;
     return { success: true };
   },
@@ -559,7 +539,7 @@ export const conductorApi = {
       channel: 'ETM',
       status: 'BOARDED',
       qr_payload: `VALID:${ticketId}`,
-      ticket_date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      ticket_date: new Date().toISOString().split('T')[0]
     });
 
     if (error) throw error;

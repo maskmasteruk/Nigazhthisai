@@ -30,13 +30,11 @@ import { DAYS_OF_WEEK, DayOfWeek, getCurrentDayName } from '../../lib/routeSched
 export const RoutesList: React.FC = () => {
   const navigate = useNavigate();
   const DISTRICTS = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur', 'Trichy', 'Erode'];
-  const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
   
   const [routes, setRoutes] = useState<AdminRoute[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('All');
-  const [selectedZone, setSelectedZone] = useState('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<AdminRoute | null>(null);
@@ -44,8 +42,7 @@ export const RoutesList: React.FC = () => {
   const [newRoute, setNewRoute] = useState({
     name: '',
     code: '',
-    district: DISTRICTS[1],
-    zone: ZONES[1]
+    district: DISTRICTS[1]
   });
   
   // Schedule State
@@ -144,7 +141,7 @@ export const RoutesList: React.FC = () => {
       await adminApi.createRoute(newRoute);
       toast.success('Route created successfully');
       setIsModalOpen(false);
-      setNewRoute({ name: '', code: '', district: DISTRICTS[1], zone: ZONES[1] });
+      setNewRoute({ name: '', code: '', district: DISTRICTS[1] });
       fetchRoutes();
     } catch (error) {
       toast.error('Failed to create route');
@@ -170,9 +167,8 @@ export const RoutesList: React.FC = () => {
                          r.code.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesDistrict = selectedDistrict === 'All' || r.district === selectedDistrict;
-    const matchesZone = selectedZone === 'All' || r.zone === selectedZone;
     
-    return matchesSearch && matchesDistrict && matchesZone;
+    return matchesSearch && matchesDistrict;
   });
 
   const currentDay = getCurrentDayName();
@@ -245,18 +241,7 @@ export const RoutesList: React.FC = () => {
               </select>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Zone</label>
-              <select 
-                value={newRoute.zone}
-                onChange={(e) => setNewRoute({ ...newRoute, zone: e.target.value })}
-                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 focus:border-slate-900 focus:bg-white outline-none transition-all font-bold text-slate-900 rounded-lg appearance-none cursor-pointer"
-              >
-                {ZONES.filter(z => z !== 'All').map(z => (
-                  <option key={z} value={z}>{z}</option>
-                ))}
-              </select>
-            </div>
+
 
             <button 
               type="submit"
@@ -300,20 +285,10 @@ export const RoutesList: React.FC = () => {
                 <select 
                   value={selectedDistrict}
                   onChange={(e) => setSelectedDistrict(e.target.value)}
-                  className="px-3 py-2.5 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-wider text-slate-700 cursor-pointer w-1/2 sm:w-auto"
+                  className="px-3 py-2.5 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-wider text-slate-700 cursor-pointer w-full"
                 >
                   {DISTRICTS.map(d => (
                     <option key={d} value={d}>{d === 'All' ? 'ALL DISTRICTS' : `${d.toUpperCase()} DISTRICT`}</option>
-                  ))}
-                </select>
-
-                <select 
-                  value={selectedZone}
-                  onChange={(e) => setSelectedZone(e.target.value)}
-                  className="px-3 py-2.5 bg-white border border-slate-200 focus:border-primary outline-none transition-all font-bold text-xs uppercase tracking-wider text-slate-700 cursor-pointer w-1/2 sm:w-auto"
-                >
-                  {ZONES.map(z => (
-                    <option key={z} value={z}>{z === 'All' ? 'ALL ZONES' : `${z.toUpperCase()} ZONE`}</option>
                   ))}
                 </select>
               </div>

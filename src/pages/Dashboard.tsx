@@ -46,13 +46,11 @@ export const Dashboard: React.FC = () => {
   const [recentTrips, setRecentTrips] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDistrict, setSelectedDistrict] = useState('All');
-  const [selectedZone, setSelectedZone] = useState('All');
   const [featureFlags, setFlagsState] = useState(getFeatureFlags());
   const userRole = localStorage.getItem('user_role') || 'ADMIN';
   const isMaster = userRole === 'MASTER_ADMIN';
 
   const districts = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur'];
-  const zones = ['All', 'North', 'South', 'West', 'East', 'Central'];
 
   const handleToggleFeature = (id: any) => {
     const updated = featureFlags.map(f => f.id === id ? { ...f, enabled: !f.enabled } : f);
@@ -69,7 +67,6 @@ export const Dashboard: React.FC = () => {
         if (session?.user?.user_metadata) {
           const meta = session.user.user_metadata;
           if (meta.district) setSelectedDistrict(meta.district);
-          if (meta.zone) setSelectedZone(meta.zone);
         }
       }
     };
@@ -81,7 +78,7 @@ export const Dashboard: React.FC = () => {
       try {
         setIsLoading(true);
         const [statsData, tripsData] = await Promise.all([
-          adminApi.getDashboardStats({ district: selectedDistrict, zone: selectedZone }),
+          adminApi.getDashboardStats({ district: selectedDistrict }),
           adminApi.getTrips()
         ]);
         setStats(statsData);
@@ -89,8 +86,7 @@ export const Dashboard: React.FC = () => {
         // Filter and sort trips for "Recent Trips"
         const filteredTrips = tripsData.filter((t: any) => {
           const matchesDistrict = selectedDistrict === 'All' || t.district === selectedDistrict;
-          const matchesZone = selectedZone === 'All' || t.zone === selectedZone;
-          return matchesDistrict && matchesZone;
+          return matchesDistrict;
         });
 
         const sortedTrips = [...filteredTrips].sort((a: any, b: any) => {
@@ -111,7 +107,7 @@ export const Dashboard: React.FC = () => {
       }
     };
     fetchStats();
-  }, [selectedDistrict, selectedZone]);
+  }, [selectedDistrict]);
 
   if (isLoading || !stats) {
     return (
@@ -140,17 +136,6 @@ export const Dashboard: React.FC = () => {
                   className="bg-slate-50 border border-slate-100 px-4 py-2 text-xs font-black uppercase tracking-widest outline-none focus:border-primary transition-all rounded-none"
                 >
                   {districts.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              
-              <div className="space-y-1">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Zone</p>
-                <select 
-                  value={selectedZone}
-                  onChange={(e) => setSelectedZone(e.target.value)}
-                  className="bg-slate-50 border border-slate-100 px-4 py-2 text-xs font-black uppercase tracking-widest outline-none focus:border-primary transition-all rounded-none"
-                >
-                  {zones.map(z => <option key={z} value={z}>{z}</option>)}
                 </select>
               </div>
             </>

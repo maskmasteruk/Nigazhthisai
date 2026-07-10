@@ -105,7 +105,7 @@ export const OperationalDone: React.FC = () => {
                     </div>
                     <div>
                       <p className="text-xs font-black text-slate-900">{route.code} — {route.name}</p>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">{route.district} / {route.zone}</p>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">{route.district}</p>
                     </div>
                   </div>
                   <div className="border-t border-slate-200 pt-2 mt-1">

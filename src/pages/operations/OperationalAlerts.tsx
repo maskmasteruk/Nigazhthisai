@@ -40,9 +40,7 @@ export const OperationalAlerts: React.FC = () => {
   const isMaster = userRole === 'MASTER_ADMIN';
 
   const [selectedDistrict, setSelectedDistrict] = useState('All');
-  const [selectedZone, setSelectedZone] = useState('All');
   const DISTRICTS = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur', 'Trichy', 'Erode'];
-  const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
 
   // Chat State
   const [adminName, setAdminName] = useState('Admin');
@@ -54,7 +52,7 @@ export const OperationalAlerts: React.FC = () => {
   const fetchData = async () => {
     try {
       const [statsData, alertsData] = await Promise.all([
-        adminApi.getDashboardStats({ district: selectedDistrict, zone: selectedZone }),
+        adminApi.getDashboardStats({ district: selectedDistrict }),
         adminApi.getAlerts()
       ]);
       setStats(statsData);
@@ -105,10 +103,6 @@ export const OperationalAlerts: React.FC = () => {
             const match = DISTRICTS.find(d => d.toLowerCase() === meta.district.toLowerCase());
             if (match) setSelectedDistrict(match);
           }
-          if (meta.zone) {
-            const match = ZONES.find(z => z.toLowerCase() === meta.zone.toLowerCase());
-            if (match) setSelectedZone(match);
-          }
         }
       }
     };
@@ -143,7 +137,7 @@ export const OperationalAlerts: React.FC = () => {
     fetchData();
     const interval = setInterval(fetchData, 15000);
     return () => clearInterval(interval);
-  }, [selectedDistrict, selectedZone]);
+  }, [selectedDistrict]);
 
   const handleAcknowledge = async (id: string) => {
     try {
@@ -155,22 +149,32 @@ export const OperationalAlerts: React.FC = () => {
     }
   };
 
+  const handleResolve = async (id: string) => {
+    try {
+      await adminApi.resolveAlert(id);
+      toast.success('Emergency alert marked as solved');
+      if (chatAlert && chatAlert.id.toString() === id.toString()) {
+        setIsChatOpen(false);
+        setChatAlert(null);
+      }
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to resolve alert');
+    }
+  };
+
   const activeAlerts = alerts.filter(alert => {
     const isPending = alert.status === 'PENDING';
     const matchesDistrict = selectedDistrict === 'All' || 
       (alert.buses?.district && alert.buses.district.toLowerCase() === selectedDistrict.toLowerCase());
-    const matchesZone = selectedZone === 'All' || 
-      (alert.buses?.zone && alert.buses.zone.toLowerCase() === selectedZone.toLowerCase());
-    return isPending && matchesDistrict && matchesZone;
+    return isPending && matchesDistrict;
   });
 
   const historyAlerts = alerts.filter(alert => {
-    const isAcked = alert.status === 'ACKNOWLEDGED';
+    const isHistory = alert.status === 'ACKNOWLEDGED' || alert.status === 'RESOLVED';
     const matchesDistrict = selectedDistrict === 'All' || 
       (alert.buses?.district && alert.buses.district.toLowerCase() === selectedDistrict.toLowerCase());
-    const matchesZone = selectedZone === 'All' || 
-      (alert.buses?.zone && alert.buses.zone.toLowerCase() === selectedZone.toLowerCase());
-    return isAcked && matchesDistrict && matchesZone;
+    return isHistory && matchesDistrict;
   });
 
   return (
@@ -186,17 +190,6 @@ export const OperationalAlerts: React.FC = () => {
               className="bg-slate-50 border border-slate-100 px-4 py-2 text-xs font-black uppercase tracking-widest outline-none focus:border-primary transition-all rounded-none"
             >
               {DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-          
-          <div className="space-y-1">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Zone Filter</p>
-            <select 
-              value={selectedZone}
-              onChange={(e) => setSelectedZone(e.target.value)}
-              className="bg-slate-50 border border-slate-100 px-4 py-2 text-xs font-black uppercase tracking-widest outline-none focus:border-primary transition-all rounded-none"
-            >
-              {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
             </select>
           </div>
         </div>
@@ -377,6 +370,15 @@ export const OperationalAlerts: React.FC = () => {
                                 {t('alerts.acknowledge')}
                               </button>
                             )}
+                            {alert.type === 'SOS' && (
+                              <button 
+                                onClick={() => handleResolve(alert.id)}
+                                className="px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/10"
+                              >
+                                <Check size={14} />
+                                Solve SOS
+                              </button>
+                            )}
                             {alert.buses?.current_lat && alert.buses?.current_lng && (
                               <a 
                                 href={`https://www.google.com/maps?q=${alert.buses.current_lat},${alert.buses.current_lng}`} 
@@ -507,12 +509,23 @@ export const OperationalAlerts: React.FC = () => {
                     </p>
                   </div>
                 </div>
-                <button 
-                  onClick={() => setIsChatOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 transition-all p-1.5 hover:bg-slate-200 rounded"
-                >
-                  <X size={18} />
-                </button>
+                <div className="flex items-center gap-2">
+                  {chatAlert.type === 'SOS' && chatAlert.status !== 'RESOLVED' && (
+                    <button
+                      onClick={() => handleResolve(chatAlert.id)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1 shadow-sm shadow-emerald-500/10"
+                    >
+                      <Check size={12} />
+                      Solve
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => setIsChatOpen(false)}
+                    className="text-slate-400 hover:text-slate-600 transition-all p-1.5 hover:bg-slate-200 rounded"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
 
               {/* Chat Messages Panel */}

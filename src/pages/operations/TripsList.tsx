@@ -27,13 +27,11 @@ export const TripsList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [selectedDistrict, setSelectedDistrict] = useState('All');
-  const [selectedZone, setSelectedZone] = useState('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const userRole = localStorage.getItem('user_role') || 'ADMIN';
   const isMaster = userRole === 'MASTER_ADMIN';
 
   const DISTRICTS = ['All', 'Chennai', 'Madurai', 'Coimbatore', 'Salem', 'Tiruppur', 'Trichy', 'Erode'];
-  const ZONES = ['All', 'North', 'South', 'West', 'East', 'Central'];
   const [submitting, setSubmitting] = useState(false);
   const [routes, setRoutes] = useState<any[]>([]);
   const [buses, setBuses] = useState<any[]>([]);
@@ -109,10 +107,6 @@ export const TripsList: React.FC = () => {
           const match = DISTRICTS.find(d => d.toLowerCase() === meta.district.toLowerCase());
           if (match) setSelectedDistrict(match);
         }
-        if (meta.zone) {
-          const match = ZONES.find(z => z.toLowerCase() === meta.zone.toLowerCase());
-          if (match) setSelectedZone(match);
-        }
       }
     };
     fetchAdminMetadata();
@@ -155,11 +149,6 @@ export const TripsList: React.FC = () => {
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editFormData.driver_name.trim() || !editFormData.conductor_name.trim()) {
-      toast.error('Driver and Conductor names are required');
-      return;
-    }
-
     setSubmitting(true);
     try {
       await adminApi.updateTrip(editingTrip.id, editFormData);
@@ -197,10 +186,8 @@ export const TripsList: React.FC = () => {
     
     const matchesDistrict = selectedDistrict === 'All' || 
       (trip.district && trip.district.toLowerCase() === selectedDistrict.toLowerCase());
-    const matchesZone = selectedZone === 'All' || 
-      (trip.zone && trip.zone.toLowerCase() === selectedZone.toLowerCase());
     
-    return matchesSearch && matchesDistrict && matchesZone;
+    return matchesSearch && matchesDistrict;
   });
 
   return (
@@ -230,19 +217,6 @@ export const TripsList: React.FC = () => {
                 >
                   {DISTRICTS.map(d => (
                     <option key={d} value={d}>{d} DISTRICT</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="relative group">
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <select 
-                  value={selectedZone}
-                  onChange={(e) => setSelectedZone(e.target.value)}
-                  className="pl-9 pr-8 py-2 bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs font-black uppercase tracking-widest text-slate-700 appearance-none cursor-pointer"
-                >
-                  {ZONES.map(z => (
-                    <option key={z} value={z}>{z} ZONE</option>
                   ))}
                 </select>
               </div>
@@ -427,57 +401,7 @@ export const TripsList: React.FC = () => {
                 </div>
               </div>
 
-              {/* Driver */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Allocated Driver</label>
-                {drivers.length === 0 ? (
-                  <input
-                    type="text"
-                    required
-                    value={editFormData.driver_name}
-                    onChange={(e) => setEditFormData({ ...editFormData, driver_name: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm rounded-sm"
-                    placeholder="Enter driver name"
-                  />
-                ) : (
-                  <select
-                    value={editFormData.driver_name}
-                    onChange={(e) => setEditFormData({ ...editFormData, driver_name: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
-                  >
-                    <option value="">-- Select Driver --</option>
-                    {drivers.map(d => (
-                      <option key={d.id} value={d.name}>{d.name} ({d.phone || d.email})</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              {/* Conductor */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Allocated Conductor</label>
-                {conductors.length === 0 ? (
-                  <input
-                    type="text"
-                    required
-                    value={editFormData.conductor_name}
-                    onChange={(e) => setEditFormData({ ...editFormData, conductor_name: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm rounded-sm"
-                    placeholder="Enter conductor name"
-                  />
-                ) : (
-                  <select
-                    value={editFormData.conductor_name}
-                    onChange={(e) => setEditFormData({ ...editFormData, conductor_name: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm bg-white rounded-sm"
-                  >
-                    <option value="">-- Select Conductor --</option>
-                    {conductors.map(c => (
-                      <option key={c.id} value={c.name}>{c.name} ({c.phone || c.email})</option>
-                    ))}
-                  </select>
-                )}
-              </div>
+              {/* Driver and Conductor allocation fields removed for self-allocation */}
 
               {/* Status */}
               <div className="space-y-1.5">
